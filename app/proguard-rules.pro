@@ -1,0 +1,2 @@
+-keep class com.aldiandrew.clockos.shizuku.UserService { *; }
+-keep class com.aldiandrew.clockos.shizuku.IUserService { *; }
