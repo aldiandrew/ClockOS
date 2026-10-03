@@ -2,7 +2,9 @@ package com.aldiandrew.clockos
 
 import android.content.ComponentName
 import android.content.Context
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.os.IBinder
 import rikka.shizuku.Shizuku
 import rikka.shizuku.Shizuku.UserServiceArgs
 import com.aldiandrew.clockos.shizuku.IUserService
@@ -12,15 +14,34 @@ class ShizukuShell(private val context: Context) {
 
     private var service: IUserService? = null
     private var bound = false
-    private var pending: ((String) -> Unit)? = null
+    private var pendingCommand: String? = null
+    private var pendingCallback: ((String) -> Unit)? = null
 
-    private val connection = object : Shizuku.ServiceConnection {
-        override fun onServiceConnected(name: ComponentName, binder: android.os.IBinder) {
+    private val serviceArgs = UserServiceArgs(
+        ComponentName(context, com.aldiandrew.clockos.shizuku.UserService::class.java)
+    )
+        .daemon(false)
+        .tag("clockos-shell")
+        .version(1)
+
+    private val connection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName, binder: IBinder) {
             service = IUserService.Stub.asInterface(binder)
             bound = true
-            pending?.let { callback ->
-                pending = null
-                callback("connected")
+            val command = pendingCommand
+            val callback = pendingCallback
+            pendingCommand = null
+            pendingCallback = null
+
+            if (command != null && callback != null) {
+                Thread {
+                    val result = try {
+                        service?.exec(command) ?: "service unavailable"
+                    } catch (t: Throwable) {
+                        "error=$t"
+                    }
+                    callback(result)
+                }.start()
             }
         }
 
@@ -32,13 +53,21 @@ class ShizukuShell(private val context: Context) {
 
     fun hasPermission(): Boolean = try {
         Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
-    } catch (_: Throwable) { false }
-
-    fun requestPermission() {
-        if (!Shizuku.isPreV11() && !hasPermission()) Shizuku.requestPermission(REQUEST_CODE)
+    } catch (_: Throwable) {
+        false
     }
 
-    fun isAvailable(): Boolean = try { Shizuku.pingBinder() } catch (_: Throwable) { false }
+    fun requestPermission() {
+        if (!Shizuku.isPreV11() && !hasPermission()) {
+            Shizuku.requestPermission(REQUEST_CODE)
+        }
+    }
+
+    fun isAvailable(): Boolean = try {
+        Shizuku.pingBinder()
+    } catch (_: Throwable) {
+        false
+    }
 
     fun execute(command: String, callback: (String) -> Unit) {
         if (!isAvailable()) {
@@ -54,51 +83,36 @@ class ShizukuShell(private val context: Context) {
         val current = service
         if (current != null) {
             Thread {
-                val result = try { current.exec(command) } catch (t: Throwable) { "error=$t" }
+                val result = try {
+                    current.exec(command)
+                } catch (t: Throwable) {
+                    "error=$t"
+                }
                 callback(result)
             }.start()
             return
         }
 
-        pending = { result ->
-            if (result == "connected") {
-                Thread {
-                    val output = try { service?.exec(command) ?: "service unavailable" }
-                    catch (t: Throwable) { "error=$t" }
-                    callback(output)
-                }.start()
-            } else callback(result)
-        }
-
-        val args = UserServiceArgs(
-            ComponentName(context, com.aldiandrew.clockos.shizuku.UserService::class.java)
-        ).apply {
-            daemon = false
-            tag = "clockos-shell"
-            version = 1
-        }
+        pendingCommand = command
+        pendingCallback = callback
 
         try {
-            Shizuku.bindUserService(args, connection)
+            Shizuku.bindUserService(serviceArgs, connection)
         } catch (t: Throwable) {
-            pending = null
+            pendingCommand = null
+            pendingCallback = null
             callback("bind error=$t")
         }
     }
 
     fun unbind() {
-        if (!bound) return
         try {
-            val args = UserServiceArgs(
-                ComponentName(context, com.aldiandrew.clockos.shizuku.UserService::class.java)
-            ).apply {
-                daemon = false
-                tag = "clockos-shell"
-                version = 1
-            }
-            Shizuku.unbindUserService(args, connection, true)
-        } catch (_: Throwable) {}
+            Shizuku.unbindUserService(serviceArgs, connection, true)
+        } catch (_: Throwable) {
+        }
         service = null
         bound = false
+        pendingCommand = null
+        pendingCallback = null
     }
 }
