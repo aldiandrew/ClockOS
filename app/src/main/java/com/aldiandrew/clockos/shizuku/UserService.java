@@ -1,12 +1,8 @@
 package com.aldiandrew.clockos.shizuku;
 
-import android.os.IBinder;
-
 import androidx.annotation.Keep;
-
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
-import java.lang.reflect.Method;
 
 @Keep
 public class UserService extends IUserService.Stub {
@@ -46,129 +42,17 @@ public class UserService extends IUserService.Stub {
         }
     }
 
-    @Override
-    public String setStatusBarIcon(
-            String slot,
-            String packageName,
-            int iconId,
-            int iconLevel,
-            String contentDescription
-    ) {
-        try {
-            Object statusBar = getStatusBarService();
-
-            Class<?> statusBarInterface =
-                Class.forName("com.android.internal.statusbar.IStatusBarService");
-
-            Method method = statusBarInterface.getMethod(
-                "setIcon",
-                String.class,
-                String.class,
-                int.class,
-                int.class,
-                String.class
-            );
-
-            method.invoke(
-                statusBar,
-                slot,
-                packageName,
-                iconId,
-                iconLevel,
-                contentDescription
-            );
-
-            return "ok";
-        } catch (Throwable t) {
-            return "error=" + rootCause(t);
-        }
-    }
-
-    @Override
-    public String removeStatusBarIcon(String slot) {
-        try {
-            Object statusBar = getStatusBarService();
-
-            Class<?> statusBarInterface =
-                Class.forName("com.android.internal.statusbar.IStatusBarService");
-
-            Method method = statusBarInterface.getMethod(
-                "removeIcon",
-                String.class
-            );
-
-            method.invoke(statusBar, slot);
-
-            return "ok";
-        } catch (Throwable t) {
-            return "error=" + rootCause(t);
-        }
-    }
-
-    private static Object getStatusBarService() throws Exception {
-        Class<?> serviceManager =
-            Class.forName("android.os.ServiceManager");
-
-        Method getService =
-            serviceManager.getMethod("getService", String.class);
-
-        IBinder binder =
-            (IBinder) getService.invoke(null, "statusbar");
-
-        if (binder == null) {
-            throw new IllegalStateException(
-                "statusbar service unavailable"
-            );
-        }
-
-        Class<?> stub =
-            Class.forName(
-                "com.android.internal.statusbar.IStatusBarService$Stub"
-            );
-
-        Method asInterface =
-            stub.getMethod("asInterface", IBinder.class);
-
-        Object service =
-            asInterface.invoke(null, binder);
-
-        if (service == null) {
-            throw new IllegalStateException(
-                "IStatusBarService unavailable"
-            );
-        }
-
-        return service;
-    }
-
-    private static String rootCause(Throwable throwable) {
-        Throwable current = throwable;
-
-        while (current.getCause() != null) {
-            current = current.getCause();
-        }
-
-        return current.toString();
-    }
-
-    private static String read(
-            java.io.InputStream input
-    ) throws Exception {
+    private static String read(java.io.InputStream input) throws Exception {
         BufferedReader reader =
-            new BufferedReader(
-                new InputStreamReader(input)
-            );
+            new BufferedReader(new InputStreamReader(input));
 
-        StringBuilder out =
-            new StringBuilder();
-
+        StringBuilder out = new StringBuilder();
         String line;
 
         while ((line = reader.readLine()) != null) {
             if (out.length() > 0) {
                 out.append('\n');
             }
-
             out.append(line);
         }
 
