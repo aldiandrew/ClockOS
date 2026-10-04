@@ -881,7 +881,13 @@ class ClockOverlayService : Service() {
             try {
                 icon.loadDrawable(this)
             } catch (_: Throwable) {
-                null
+                try {
+                    packageManager.getApplicationIcon(
+                        entry.notification.packageName
+                    )
+                } catch (_: Throwable) {
+                    null
+                }
             }
         }
     }
