@@ -6,7 +6,6 @@ data class ClockSettings(
     val format24: Boolean = true,
     val showSeconds: Boolean = false,
     val showDate: Boolean = false,
-    val showDay: Boolean = false,
     val dateFormat: String = "dd/MM",
     val customDateFormat: String = "",
     val dateStyle: Int = 0,
@@ -26,7 +25,6 @@ class ClockPrefs(context: Context) {
         format24 = prefs.getBoolean("format24", true),
         showSeconds = prefs.getBoolean("showSeconds", false),
         showDate = prefs.getBoolean("showDate", false),
-        showDay = prefs.getBoolean("showDay", false),
         dateFormat = prefs.getString("dateFormat", "dd/MM")
             ?: "dd/MM",
         customDateFormat = prefs.getString("customDateFormat", "")
