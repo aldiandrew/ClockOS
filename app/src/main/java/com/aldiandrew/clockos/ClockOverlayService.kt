@@ -1293,7 +1293,7 @@ private class NotificationIconRow(
     fun desiredWidthPx(): Int =
         childCount *
             (
-                iconSizePx +
+                slotSizePx +
                     horizontalPaddingPx * 2
             )
 
@@ -1314,7 +1314,7 @@ private class NotificationIconRow(
                     MeasureSpec.EXACTLY
                 ),
                 MeasureSpec.makeMeasureSpec(
-                    iconSizePx,
+                    slotSizePx,
                     MeasureSpec.EXACTLY
                 )
             )
@@ -1360,24 +1360,24 @@ private class NotificationIconRow(
     override fun generateDefaultLayoutParams():
         LayoutParams =
         LayoutParams(
-            iconSizePx,
-            iconSizePx
+            slotSizePx,
+            slotSizePx
         )
 
     override fun generateLayoutParams(
         attrs: android.util.AttributeSet?
     ): LayoutParams =
         LayoutParams(
-            iconSizePx,
-            iconSizePx
+            slotSizePx,
+            slotSizePx
         )
 
     override fun generateLayoutParams(
         p: LayoutParams
     ): LayoutParams =
         LayoutParams(
-            iconSizePx,
-            iconSizePx
+            slotSizePx,
+            slotSizePx
         )
 
     override fun checkLayoutParams(
