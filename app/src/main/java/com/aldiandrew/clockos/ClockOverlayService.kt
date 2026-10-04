@@ -21,14 +21,18 @@ import android.widget.TextView
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.regex.Pattern
 
 class ClockOverlayService : Service() {
 
     companion object {
         const val ACTION_SETTINGS_CHANGED =
             "com.aldiandrew.clockos.ACTION_SETTINGS_CHANGED"
+
+        private const val CHANNEL_ID = "clockos"
+        private const val CHANNEL_NAME = "ClockOS"
+        private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
     }
+
     private lateinit var windowManager: WindowManager
     private lateinit var clockView: TextView
     private lateinit var params: WindowManager.LayoutParams
@@ -45,11 +49,7 @@ class ClockOverlayService : Service() {
             updateClock()
             handler.postDelayed(
                 this,
-                if (ClockPrefs(this@ClockOverlayService).load().showSeconds) {
-                    1000L
-                } else {
-                    1000L
-                }
+                1000L
             )
         }
     }
@@ -101,7 +101,12 @@ class ClockOverlayService : Service() {
                 setSingleLine(true)
                 includeFontPadding = false
                 gravity = Gravity.CENTER_VERTICAL or Gravity.START
-                setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL))
+                setTypeface(
+                    Typeface.create(
+                        "sans-serif-medium",
+                        Typeface.NORMAL
+                    )
+                )
                 importantForAccessibility =
                     View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }
@@ -413,9 +418,6 @@ class ClockOverlayService : Service() {
                     android.content.res.Configuration.UI_MODE_NIGHT_MASK
             ) == android.content.res.Configuration.UI_MODE_NIGHT_YES
 
-        val fallback =
-            if (fallbackNight) Color.WHITE else Color.BLACK
-
         shell.execute("dumpsys statusbar") { result ->
             val appearanceLine =
                 result.lineSequence()
@@ -487,11 +489,5 @@ class ClockOverlayService : Service() {
                 null
             }
         }
-    }
-
-    private companion object {
-        const val CHANNEL_ID = "clockos"
-        const val CHANNEL_NAME = "ClockOS"
-        const val SYSTEM_UI_PACKAGE = "com.android.systemui"
     }
 }
