@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -37,7 +39,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.aldiandrew.clockos.ui.theme.ClockOSTheme
 import rikka.shizuku.Shizuku
 
@@ -547,6 +552,13 @@ private fun ClockScreen(
             }
 
             Text(
+                "Preview",
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            ClockPreview(settings)
+
+            Text(
                 "Size: %.0fsp".format(
                     settings.sizeSp
                 )
@@ -620,6 +632,18 @@ private fun ClockScreen(
                 },
                 valueRange = -20f..20f
             )
+
+            OutlinedButton(
+                onClick = {
+                    prefs.set("horizontalPositionDp", 0f)
+                    prefs.set("verticalPositionDp", 0f)
+                    settings = prefs.load()
+                    onSettingsChanged()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Reset custom position")
+            }
 
             Button(
                 onClick = onStart,
@@ -706,6 +730,78 @@ private fun ClockScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun ClockPreview(
+    settings: ClockSettings
+) {
+    val now = java.util.Date()
+    val timePattern =
+        if (settings.format24) {
+            "HH:mm"
+        } else {
+            if (settings.amPmStyle == 0) "hh:mm" else "hh:mm a"
+        }
+
+    val time = try {
+        java.text.SimpleDateFormat(
+            timePattern,
+            java.util.Locale.getDefault()
+        ).format(now)
+    } catch (_: Throwable) {
+        "12:34"
+    }
+
+    val date = if (settings.showDate) {
+        val pattern = if (settings.dateFormat == "CUSTOM") {
+            settings.customDateFormat.ifBlank { "dd/MM" }
+        } else {
+            settings.dateFormat
+        }
+        try {
+            java.text.SimpleDateFormat(
+                pattern,
+                java.util.Locale.getDefault()
+            ).format(now)
+        } catch (_: Throwable) {
+            "dd/MM"
+        }
+    } else {
+        ""
+    }
+
+    val previewText = if (date.isBlank()) {
+        time
+    } else {
+        "$time  $date"
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(64.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHighest
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = previewText,
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = settings.sizeSp.coerceIn(10f, 22f).sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
+        }
     }
 }
 
