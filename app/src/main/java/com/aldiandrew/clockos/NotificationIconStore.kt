@@ -13,6 +13,7 @@ object NotificationIconStore {
     private val lock = Any()
     private val entries = LinkedHashMap<String, ClockNotificationEntry>()
     private val listeners = LinkedHashSet<() -> Unit>()
+    private var listenerConnected = false
 
     fun register(listener: () -> Unit) {
         synchronized(lock) {
@@ -25,6 +26,25 @@ object NotificationIconStore {
         synchronized(lock) {
             listeners -= listener
         }
+    }
+
+    fun isListenerConnected(): Boolean =
+        synchronized(lock) {
+            listenerConnected
+        }
+
+    fun setListenerConnected(
+        connected: Boolean
+    ) {
+        val callbacks: List<() -> Unit>
+        synchronized(lock) {
+            if (listenerConnected == connected) {
+                return
+            }
+            listenerConnected = connected
+            callbacks = listeners.toList()
+        }
+        callbacks.forEach { it() }
     }
 
     fun snapshot(): List<ClockNotificationEntry> =
