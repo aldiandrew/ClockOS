@@ -10,16 +10,76 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
+
       - uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: "8.13"
+
       - name: Build release APK
         run: gradle --no-daemon assembleRelease
+
+      - name: Prepare installable APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          OUTPUT_DIR="app/build/outputs/apk/release"
+          APK="$(find "$OUTPUT_DIR" -maxdepth 1 -type f -name '*.apk' | head -n 1)"
+
+          if [ -z "${APK}" ]; then
+            echo "No release APK found."
+            find app/build/outputs -type f -print || true
+            exit 1
+          fi
+
+          echo "Release APK found: ${APK}"
+
+          BUILD_TOOLS="$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          ZIPALIGN="${BUILD_TOOLS}/zipalign"
+          APKSIGNER="${BUILD_TOOLS}/apksigner"
+
+          KEYSTORE="${HOME}/.android/debug.keystore"
+          mkdir -p "${HOME}/.android"
+
+          if [ ! -f "${KEYSTORE}" ]; then
+            keytool -genkeypair \
+              -keystore "${KEYSTORE}" \
+              -storepass android \
+              -keypass android \
+              -alias androiddebugkey \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+          ALIGNED="/tmp/ClockOS-release-aligned.apk"
+          SIGNED="app-release.apk"
+
+          "${ZIPALIGN}" -f -p 4 "${APK}" "${ALIGNED}"
+
+          "${APKSIGNER}" sign \
+            --ks "${KEYSTORE}" \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --ks-key-alias androiddebugkey \
+            --out "${OUTPUT_DIR}/${SIGNED}" \
+            "${ALIGNED}"
+
+          "${APKSIGNER}" verify --verbose "${OUTPUT_DIR}/${SIGNED}"
+
+          rm -f "${ALIGNED}"
+
+          echo "Final APK:"
+          ls -lh "${OUTPUT_DIR}/${SIGNED}"
+
       - uses: actions/upload-artifact@v4
         with:
           name: ClockOS-release
           path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
