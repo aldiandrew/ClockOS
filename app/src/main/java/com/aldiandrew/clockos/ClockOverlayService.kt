@@ -19,10 +19,10 @@ import android.text.style.RelativeSizeSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.widget.ImageView
-import android.widget.LinearLayout
 import android.widget.TextView
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -47,9 +47,9 @@ class ClockOverlayService : Service() {
     }
 
     private lateinit var windowManager: WindowManager
-    private lateinit var statusBarContentView: LinearLayout
+    private lateinit var statusBarContentView: StatusBarClusterView
     private lateinit var clockView: TextView
-    private lateinit var notificationIconView: LinearLayout
+    private lateinit var notificationIconView: NotificationIconRow
     private lateinit var params: WindowManager.LayoutParams
     private lateinit var shell: ShizukuShell
     private lateinit var systemUiContext: Context
@@ -169,41 +169,12 @@ class ClockOverlayService : Service() {
                 createSystemUiStyledClock()
 
             notificationIconView =
-                LinearLayout(systemUiContext).apply {
-                    orientation =
-                        LinearLayout.HORIZONTAL
-                    gravity =
-                        Gravity.CENTER_VERTICAL
-                    clipChildren = false
-                    clipToPadding = false
-                    setBackgroundColor(Color.TRANSPARENT)
-                }
+                NotificationIconRow(systemUiContext)
 
             statusBarContentView =
-                LinearLayout(systemUiContext).apply {
-                    orientation =
-                        LinearLayout.HORIZONTAL
-                    gravity =
-                        Gravity.CENTER_VERTICAL
-                    clipChildren = true
-                    clipToPadding = false
-                    setBackgroundColor(Color.TRANSPARENT)
-
-                    addView(
-                        clockView,
-                        LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.WRAP_CONTENT,
-                            LinearLayout.LayoutParams.MATCH_PARENT
-                        )
-                    )
-
-                    addView(
-                        notificationIconView,
-                        LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.WRAP_CONTENT,
-                            LinearLayout.LayoutParams.MATCH_PARENT
-                        )
-                    )
+                StatusBarClusterView(systemUiContext).apply {
+                    addView(clockView)
+                    addView(notificationIconView)
                 }
 
             params = WindowManager.LayoutParams(
@@ -676,41 +647,35 @@ class ClockOverlayService : Service() {
                 dp(80f)
             )
 
-        val widthSpec =
-            View.MeasureSpec.makeMeasureSpec(
-                available,
-                View.MeasureSpec.AT_MOST
-            )
-
         val heightSpec =
             View.MeasureSpec.makeMeasureSpec(
                 statusBarSystemIconsHeightPx(),
                 View.MeasureSpec.EXACTLY
             )
 
-        // WindowManager assigns WindowManager.LayoutParams to the
-        // top-level overlay itself. Re-assert the child params before
-        // measuring so LinearLayout never sees the wrong LayoutParams type.
-        clockView.layoutParams =
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.MATCH_PARENT
+        val widthSpec =
+            View.MeasureSpec.makeMeasureSpec(
+                available,
+                View.MeasureSpec.AT_MOST
             )
 
-        notificationIconView.layoutParams =
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.MATCH_PARENT
-            )
-
-        statusBarContentView.measure(
+        // Measure only the TextView. The overlay container is a custom
+        // ViewGroup and never performs LinearLayout.measureHorizontal().
+        clockView.measure(
             widthSpec,
             heightSpec
         )
 
+        val clockWidth =
+            clockView.measuredWidth
+
+        val notificationWidth =
+            notificationIconView.desiredWidthPx()
+
         return maxOf(
             nativeClockSlotWidthPx(),
-            statusBarContentView.measuredWidth
+            clockWidth +
+                notificationWidth
         ).coerceAtMost(
             available
         )
@@ -810,12 +775,6 @@ class ClockOverlayService : Service() {
             return
         }
 
-        val iconSize =
-            systemUiNotificationIconSizePx()
-
-        val horizontalPadding =
-            systemUiNotificationIconHorizontalPaddingPx()
-
         entries.forEach { entry ->
             val drawable =
                 loadNotificationIcon(entry)
@@ -843,16 +802,7 @@ class ClockOverlayService : Service() {
                 }
 
             notificationIconView.addView(
-                icon,
-                LinearLayout.LayoutParams(
-                    iconSize,
-                    iconSize
-                ).apply {
-                    marginStart =
-                        horizontalPadding
-                    marginEnd =
-                        horizontalPadding
-                }
+                icon
             )
         }
 
@@ -891,23 +841,6 @@ class ClockOverlayService : Service() {
         }
     }
 
-    private fun systemUiNotificationIconSizePx(): Int =
-        systemUiResources()
-            ?.getDimensionPixelSizeByName(
-                "status_bar_icon_size"
-            )
-            ?: systemUiResources()
-                ?.getDimensionPixelSizeByName(
-                    "status_bar_icon_size_sp"
-                )
-            ?: dp(15f)
-
-    private fun systemUiNotificationIconHorizontalPaddingPx(): Int =
-        systemUiResources()
-            ?.getDimensionPixelSizeByName(
-                "status_bar_horizontal_padding"
-            )
-            ?: dp(2f)
 
     private fun nativeClockSlotWidthPx(): Int {
         val start =
@@ -1233,4 +1166,212 @@ class ClockOverlayService : Service() {
             }
         }
     }
+}
+
+
+private class StatusBarClusterView(
+    context: Context
+) : ViewGroup(context) {
+
+    override fun onMeasure(
+        widthMeasureSpec: Int,
+        heightMeasureSpec: Int
+    ) {
+        val height =
+            MeasureSpec.getSize(heightMeasureSpec)
+                .takeIf { it > 0 }
+                ?: suggestedMinimumHeight
+
+        if (childCount == 0) {
+            setMeasuredDimension(
+                resolveSize(
+                    suggestedMinimumWidth,
+                    widthMeasureSpec
+                ),
+                height
+            )
+            return
+        }
+
+        var totalWidth = 0
+
+        for (index in 0 until childCount) {
+            val child = getChildAt(index)
+            measureChild(
+                child,
+                widthMeasureSpec,
+                heightMeasureSpec
+            )
+            totalWidth += child.measuredWidth
+        }
+
+        setMeasuredDimension(
+            resolveSize(totalWidth, widthMeasureSpec),
+            height
+        )
+    }
+
+    override fun onLayout(
+        changed: Boolean,
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int
+    ) {
+        var x = 0
+
+        for (index in 0 until childCount) {
+            val child = getChildAt(index)
+            val childWidth = child.measuredWidth
+            val childHeight = child.measuredHeight
+            val y =
+                ((bottom - top - childHeight) / 2)
+                    .coerceAtLeast(0)
+
+            child.layout(
+                x,
+                y,
+                x + childWidth,
+                y + childHeight
+            )
+
+            x += childWidth
+        }
+    }
+
+    override fun generateDefaultLayoutParams():
+        LayoutParams =
+        LayoutParams(
+            LayoutParams.WRAP_CONTENT,
+            LayoutParams.MATCH_PARENT
+        )
+
+    override fun generateLayoutParams(
+        attrs: android.util.AttributeSet?
+    ): LayoutParams =
+        LayoutParams(
+            LayoutParams.WRAP_CONTENT,
+            LayoutParams.MATCH_PARENT
+        )
+
+    override fun generateLayoutParams(
+        p: LayoutParams
+    ): LayoutParams =
+        LayoutParams(
+            p.width,
+            p.height
+        )
+
+    override fun checkLayoutParams(
+        p: LayoutParams
+    ): Boolean = true
+}
+
+private class NotificationIconRow(
+    context: Context
+) : ViewGroup(context) {
+
+    private val horizontalPaddingPx =
+        (
+            resources.displayMetrics.density * 2f
+        ).toInt().coerceAtLeast(1)
+
+    private val iconSizePx =
+        (
+            resources.displayMetrics.density * 15f
+        ).toInt().coerceAtLeast(1)
+
+    fun desiredWidthPx(): Int =
+        childCount *
+            (
+                iconSizePx +
+                    horizontalPaddingPx * 2
+            )
+
+    override fun onMeasure(
+        widthMeasureSpec: Int,
+        heightMeasureSpec: Int
+    ) {
+        val height =
+            MeasureSpec.getSize(heightMeasureSpec)
+                .takeIf { it > 0 }
+                ?: suggestedMinimumHeight
+
+        for (index in 0 until childCount) {
+            val child = getChildAt(index)
+            child.measure(
+                MeasureSpec.makeMeasureSpec(
+                    iconSizePx,
+                    MeasureSpec.EXACTLY
+                ),
+                MeasureSpec.makeMeasureSpec(
+                    iconSizePx,
+                    MeasureSpec.EXACTLY
+                )
+            )
+        }
+
+        setMeasuredDimension(
+            resolveSize(
+                desiredWidthPx(),
+                widthMeasureSpec
+            ),
+            height
+        )
+    }
+
+    override fun onLayout(
+        changed: Boolean,
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int
+    ) {
+        var x = horizontalPaddingPx
+
+        for (index in 0 until childCount) {
+            val child = getChildAt(index)
+            val y =
+                ((bottom - top - child.measuredHeight) / 2)
+                    .coerceAtLeast(0)
+
+            child.layout(
+                x,
+                y,
+                x + child.measuredWidth,
+                y + child.measuredHeight
+            )
+
+            x +=
+                child.measuredWidth +
+                    horizontalPaddingPx * 2
+        }
+    }
+
+    override fun generateDefaultLayoutParams():
+        LayoutParams =
+        LayoutParams(
+            iconSizePx,
+            iconSizePx
+        )
+
+    override fun generateLayoutParams(
+        attrs: android.util.AttributeSet?
+    ): LayoutParams =
+        LayoutParams(
+            iconSizePx,
+            iconSizePx
+        )
+
+    override fun generateLayoutParams(
+        p: LayoutParams
+    ): LayoutParams =
+        LayoutParams(
+            iconSizePx,
+            iconSizePx
+        )
+
+    override fun checkLayoutParams(
+        p: LayoutParams
+    ): Boolean = true
 }
