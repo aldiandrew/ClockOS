@@ -8,8 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
-import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -265,69 +263,16 @@ class ClockOverlayService : Service() {
             0
         )
 
-        // Keep the native SystemUI clock's real layout slot, but cover its
-        // glyphs with the SystemUI status-bar background. This removes the
-        // duplicate/shadow clock without moving notification icons.
-        view.background =
-            loadSystemUiStatusBarBackground()
+        // Transparent window: never paint a fake/black status-bar background.
+        // The custom text must look like native SystemUI over whatever
+        // background the device is currently using.
+        view.background = null
+        view.setTextColor(Color.WHITE)
 
         view.importantForAccessibility =
             View.IMPORTANT_FOR_ACCESSIBILITY_NO
 
         return view
-    }
-
-    private fun loadSystemUiStatusBarBackground(): Drawable {
-        val resources = systemUiContext.resources
-
-        val drawableNames =
-            arrayOf(
-                "status_bar_background",
-                "system_bar_background",
-                "status_background"
-            )
-
-        for (name in drawableNames) {
-            val id =
-                resources.getIdentifier(
-                    name,
-                    "drawable",
-                    SYSTEM_UI_PACKAGE
-                )
-
-            if (id != 0) {
-                try {
-                    return resources.getDrawable(
-                        id,
-                        systemUiContext.theme
-                    ).mutate()
-                } catch (_: Throwable) {
-                }
-            }
-        }
-
-        val opaqueId =
-            resources.getIdentifier(
-                "system_bar_background_opaque",
-                "color",
-                SYSTEM_UI_PACKAGE
-            )
-
-        if (opaqueId != 0) {
-            try {
-                return ColorDrawable(
-                    resources.getColor(
-                        opaqueId,
-                        systemUiContext.theme
-                    )
-                )
-            } catch (_: Throwable) {
-            }
-        }
-
-        // Last-resort mask for SystemUI builds that expose no background
-        // resource. It prevents the native clock from remaining visible.
-        return ColorDrawable(Color.BLACK)
     }
 
     private fun updateClock() {
@@ -528,86 +473,11 @@ class ClockOverlayService : Service() {
     }
 
     private fun applyHorizontalFit() {
+        // Keep the main clock size fixed exactly as selected by the user.
+        // Do not use textScaleX: Sakura keeps the main time font size stable
+        // and changes the relative size of secondary date/AM-PM content.
         if (!::clockView.isInitialized) return
-
-        val available =
-            nativeClockTextWidthPx()
-                .coerceAtLeast(dp(20f))
-
-        val paint =
-            android.graphics.Paint(
-                clockView.paint
-            ).apply {
-                textScaleX = 1f
-            }
-
-        var width =
-            paint.measureText(
-                clockView.text.toString()
-            )
-
-        val text =
-            clockView.text
-
-        if (
-            text is Spannable &&
-            text.length > 0
-        ) {
-            // Recalculate extras and AM/PM at their actual relative size
-            // because Paint#measureText alone ignores spans.
-            paint.textSize =
-                clockView.textSize
-
-            val plain =
-                text.toString()
-
-            val fullWidth =
-                paint.measureText(plain)
-
-            val extraStart =
-                plain.indexOf(
-                    "  "
-                )
-
-            if (extraStart >= 0) {
-                val main =
-                    plain.substring(
-                        0,
-                        extraStart
-                    )
-
-                val extras =
-                    plain.substring(
-                        extraStart
-                    )
-
-                val mainWidth =
-                    paint.measureText(main)
-
-                paint.textSize =
-                    clockView.textSize *
-                        EXTRA_RELATIVE_SIZE
-
-                val extraWidth =
-                    paint.measureText(extras)
-
-                width =
-                    mainWidth +
-                        extraWidth
-            } else {
-                width = fullWidth
-            }
-        }
-
-        clockView.textScaleX =
-            if (
-                width > available &&
-                width > 0f
-            ) {
-                available / width
-            } else {
-                1f
-            }
+        clockView.textScaleX = 1f
     }
 
     private fun updatePosition(
