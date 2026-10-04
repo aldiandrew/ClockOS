@@ -52,13 +52,11 @@ public class UserService extends IUserService.Stub {
             result.append("exit=").append(code);
 
             if (!stdout.isEmpty()) {
-                result.append("
-").append(stdout);
+                result.append("\n").append(stdout);
             }
 
             if (!stderr.isEmpty()) {
-                result.append("
-stderr=").append(stderr);
+                result.append("\nstderr=").append(stderr);
             }
 
             return result.toString();
@@ -74,8 +72,7 @@ stderr=").append(stderr);
     private String enableClockOverlay() {
         try {
             Object overlayManager = getOverlayManager();
-            Object overlay =
-                createTransparentClockOverlay();
+            Object overlay = createTransparentClockOverlay();
 
             Class<?> transactionClass =
                 Class.forName(
@@ -162,9 +159,6 @@ stderr=").append(stderr);
     private String disableClockOverlay() {
         Throwable firstError = null;
 
-        // Normally the Shizuku user service runs as shell. Try that owner
-        // first, then the app package in case the service is running under
-        // the application UID on a particular Shizuku implementation.
         String[] owners = {
             "com.android.shell",
             "com.aldiandrew.clockos"
@@ -273,10 +267,6 @@ stderr=").append(stderr);
         String owner =
             "com.android.shell";
 
-        // FabricatedOverlay.Builder validates that the owner package belongs
-        // to the caller UID. Shizuku's user service is normally shell UID.
-        // Keep a UID check here so ordinary app UID implementations can still
-        // use their own package name.
         try {
             int uid = Process.myUid();
             if (uid != 2000) {
@@ -319,8 +309,8 @@ stderr=").append(stderr);
                 "android.os.ServiceManager"
             );
 
-        IBinderHandle binder =
-            new IBinderHandle(
+        android.os.IBinder binder =
+            (android.os.IBinder)
                 serviceManager
                     .getMethod(
                         "getService",
@@ -329,8 +319,13 @@ stderr=").append(stderr);
                     .invoke(
                         null,
                         "overlay"
-                    )
+                    );
+
+        if (binder == null) {
+            throw new IllegalStateException(
+                "overlay service unavailable"
             );
+        }
 
         Class<?> stub =
             Class.forName(
@@ -344,7 +339,7 @@ stderr=").append(stderr);
             )
             .invoke(
                 null,
-                binder.binder
+                binder
             );
     }
 
@@ -380,17 +375,6 @@ stderr=").append(stderr);
         }
 
         return out.toString();
-    }
-
-    private static final class IBinderHandle {
-        final android.os.IBinder binder;
-
-        IBinderHandle(
-            Object value
-        ) {
-            binder =
-                (android.os.IBinder) value;
-        }
     }
 
     public void destroy() {
