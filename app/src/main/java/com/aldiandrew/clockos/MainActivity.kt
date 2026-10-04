@@ -240,20 +240,22 @@ class MainActivity : ComponentActivity() {
                     return@runOnUiThread
                 }
 
-                // Disable the native SystemUI clock before starting
-                // the replacement overlay, so two clocks can never be
-                // visible at the same time.
+                // Keep the native clock view in SystemUI so its measured
+                // width still reserves the notification area. A Shizuku FRRO
+                // makes the native clock color transparent instead of removing
+                // the view from the layout.
                 shell.execute(
-                    "cmd statusbar send-disable-flag clock"
-                ) { disableResult ->
+                    "clockos:overlay:enable"
+                ) { overlayResult ->
                     runOnUiThread {
                         if (
-                            !disableResult
+                            !overlayResult
                                 .startsWith("exit=0")
                         ) {
                             Toast.makeText(
                                 this,
-                                disableResult.take(300),
+                                "SystemUI overlay failed: " +
+                                    overlayResult.take(250),
                                 Toast.LENGTH_LONG
                             ).show()
                             return@runOnUiThread
@@ -275,10 +277,8 @@ class MainActivity : ComponentActivity() {
                                 Toast.LENGTH_SHORT
                             ).show()
                         } catch (t: Throwable) {
-                            // Never leave the stock clock disabled if the
-                            // replacement service could not be started.
                             shell.execute(
-                                "cmd statusbar send-disable-flag none"
+                                "clockos:overlay:disable"
                             ) { }
 
                             Toast.makeText(
