@@ -321,7 +321,7 @@ class ClockOverlayService : Service() {
                 measured +
                 endPadding +
                 dp(2f)
-            ).coerceAtLeast(dp(56f))
+            ).coerceAtLeast(dp(40f))
             .coerceAtMost(dp(88f))
     }
 
@@ -398,14 +398,20 @@ class ClockOverlayService : Service() {
             if (fallbackNight) Color.WHITE else Color.BLACK
 
         shell.execute("dumpsys statusbar") { result ->
+            val appearanceLine =
+                result.lineSequence()
+                    .firstOrNull {
+                        it.trimStart().startsWith("mAppearance=")
+                    }
+
             val light =
-                result.contains(
+                appearanceLine?.contains(
                     "LIGHT_STATUS_BARS",
                     ignoreCase = true
-                )
+                ) ?: !fallbackNight
 
             val color =
-                if (light) Color.BLACK else fallback
+                if (light) Color.BLACK else Color.WHITE
 
             handler.post {
                 if (::clockView.isInitialized && color != lastColor) {
