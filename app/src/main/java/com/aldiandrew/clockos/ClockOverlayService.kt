@@ -15,6 +15,7 @@ import android.os.Looper
 import android.provider.Settings
 import android.text.Spannable
 import android.text.SpannableStringBuilder
+import android.text.TextUtils
 import android.text.style.RelativeSizeSpan
 import android.util.TypedValue
 import android.view.Gravity
@@ -44,6 +45,7 @@ class ClockOverlayService : Service() {
         private const val EXTRA_RELATIVE_SIZE = 0.70f
         private const val CLOCK_EDGE_MARGIN_DP = 4f
         private const val CLOCK_VERTICAL_OFFSET_DP = -2f
+        private const val MAX_DATE_EXTRA_WIDTH_DP = 72f
     }
 
     private lateinit var windowManager: WindowManager
@@ -349,6 +351,10 @@ class ClockOverlayService : Service() {
             lastSizeSp = settings.sizeSp
         }
 
+        configureClockTextWidth(
+            settings.showDate
+        )
+
         val now = Date()
         val timePattern =
             buildTimePattern(settings)
@@ -397,6 +403,31 @@ class ClockOverlayService : Service() {
             statusBarContentView,
             statusBarContentView.rootWindowInsets
         )
+    }
+
+    private fun configureClockTextWidth(
+        showDate: Boolean
+    ) {
+        if (!::clockView.isInitialized) return
+
+        clockView.setHorizontallyScrolling(false)
+        clockView.ellipsize =
+            if (showDate) {
+                TextUtils.TruncateAt.END
+            } else {
+                null
+            }
+
+        clockView.minWidth =
+            nativeClockSlotWidthPx()
+
+        clockView.maxWidth =
+            if (showDate) {
+                nativeClockSlotWidthPx() +
+                    dp(MAX_DATE_EXTRA_WIDTH_DP)
+            } else {
+                Int.MAX_VALUE
+            }
     }
 
     private fun buildTimePattern(
