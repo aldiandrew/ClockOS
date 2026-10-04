@@ -1,7 +1,6 @@
 package com.aldiandrew.clockos.shizuku;
 
 import android.graphics.Color;
-import android.os.Process;
 import android.util.TypedValue;
 
 import androidx.annotation.Keep;
@@ -268,7 +267,7 @@ public class UserService extends IUserService.Stub {
             "com.android.shell";
 
         try {
-            int uid = Process.myUid();
+            int uid = android.os.Process.myUid();
             if (uid != 2000) {
                 owner =
                     "com.aldiandrew.clockos";
