@@ -146,19 +146,6 @@ class SakuraNotificationIconContainer(
                 canvas,
                 x
             )
-        } else {
-            // Keep the final icon centered in its own slot.
-            val lastLeft =
-                (icons.size - 1) *
-                    (slotWidth + iconSpacingPx)
-
-            if (lastLeft >= 0) {
-                drawIcon(
-                    canvas = canvas,
-                    drawable = icons.last().drawable,
-                    slotLeft = lastLeft
-                )
-            }
         }
     }
 
