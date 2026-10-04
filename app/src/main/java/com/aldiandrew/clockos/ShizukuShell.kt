@@ -8,17 +8,31 @@ import android.os.IBinder
 import rikka.shizuku.Shizuku
 import rikka.shizuku.Shizuku.UserServiceArgs
 import com.aldiandrew.clockos.shizuku.IUserService
+import java.util.ArrayDeque
 
 class ShizukuShell(private val context: Context) {
-    companion object { private const val REQUEST_CODE = 1001 }
+
+    companion object {
+        private const val REQUEST_CODE = 1001
+    }
+
+    private data class Command(
+        val command: String,
+        val callback: (String) -> Unit
+    )
+
+    private val lock = Any()
+    private val queue = ArrayDeque<Command>()
 
     private var service: IUserService? = null
-    private var bound = false
-    private var pendingCommand: String? = null
-    private var pendingCallback: ((String) -> Unit)? = null
+    private var binding = false
+    private var running = false
 
     private val serviceArgs = UserServiceArgs(
-        ComponentName(context, com.aldiandrew.clockos.shizuku.UserService::class.java)
+        ComponentName(
+            context,
+            com.aldiandrew.clockos.shizuku.UserService::class.java
+        )
     )
         .daemon(false)
         .tag("clockos-shell")
@@ -26,37 +40,37 @@ class ShizukuShell(private val context: Context) {
         .version(2)
 
     private val connection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName, binder: IBinder) {
-            service = IUserService.Stub.asInterface(binder)
-            bound = true
-            val command = pendingCommand
-            val callback = pendingCallback
-            pendingCommand = null
-            pendingCallback = null
 
-            if (command != null && callback != null) {
-                Thread {
-                    val result = try {
-                        service?.exec(command) ?: "service unavailable"
-                    } catch (t: Throwable) {
-                        "error=$t"
-                    }
-                    callback(result)
-                }.start()
+        override fun onServiceConnected(
+            name: ComponentName,
+            binder: IBinder
+        ) {
+            synchronized(lock) {
+                service =
+                    IUserService.Stub.asInterface(binder)
+                binding = false
+                runNextLocked()
             }
         }
 
-        override fun onServiceDisconnected(name: ComponentName) {
-            service = null
-            bound = false
+        override fun onServiceDisconnected(
+            name: ComponentName
+        ) {
+            synchronized(lock) {
+                service = null
+                binding = false
+                running = false
+            }
         }
     }
 
-    fun hasPermission(): Boolean = try {
-        Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
-    } catch (_: Throwable) {
-        false
-    }
+    fun hasPermission(): Boolean =
+        try {
+            Shizuku.checkSelfPermission() ==
+                PackageManager.PERMISSION_GRANTED
+        } catch (_: Throwable) {
+            false
+        }
 
     fun requestPermission() {
         if (!Shizuku.isPreV11() && !hasPermission()) {
@@ -64,56 +78,111 @@ class ShizukuShell(private val context: Context) {
         }
     }
 
-    fun isAvailable(): Boolean = try {
-        Shizuku.pingBinder()
-    } catch (_: Throwable) {
-        false
-    }
+    fun isAvailable(): Boolean =
+        try {
+            Shizuku.pingBinder()
+        } catch (_: Throwable) {
+            false
+        }
 
-    fun execute(command: String, callback: (String) -> Unit) {
+    fun execute(
+        command: String,
+        callback: (String) -> Unit
+    ) {
         if (!isAvailable()) {
             callback("Shizuku is not running")
             return
         }
+
         if (!hasPermission()) {
             requestPermission()
             callback("Shizuku permission required")
             return
         }
 
-        val current = service
-        if (current != null) {
-            Thread {
-                val result = try {
-                    current.exec(command)
-                } catch (t: Throwable) {
-                    "error=$t"
-                }
-                callback(result)
-            }.start()
-            return
-        }
+        synchronized(lock) {
+            queue.addLast(
+                Command(command, callback)
+            )
 
-        pendingCommand = command
-        pendingCallback = callback
-
-        try {
-            Shizuku.bindUserService(serviceArgs, connection)
-        } catch (t: Throwable) {
-            pendingCommand = null
-            pendingCallback = null
-            callback("bind error=$t")
+            if (service != null) {
+                runNextLocked()
+            } else {
+                bindLocked()
+            }
         }
     }
 
-    fun unbind() {
+    private fun bindLocked() {
+        if (binding || service != null) return
+
+        binding = true
+
         try {
-            Shizuku.unbindUserService(serviceArgs, connection, true)
-        } catch (_: Throwable) {
+            Shizuku.bindUserService(
+                serviceArgs,
+                connection
+            )
+        } catch (t: Throwable) {
+            binding = false
+            val error = "bind error=$t"
+
+            while (queue.isNotEmpty()) {
+                queue.removeFirst().callback(error)
+            }
         }
-        service = null
-        bound = false
-        pendingCommand = null
-        pendingCallback = null
+    }
+
+    private fun runNextLocked() {
+        if (running) return
+
+        val current = service ?: return
+        if (queue.isEmpty()) return
+
+        val item = queue.removeFirst()
+        running = true
+
+        Thread {
+            val result =
+                try {
+                    current.exec(item.command)
+                } catch (t: Throwable) {
+                    "error=$t"
+                }
+
+            try {
+                item.callback(result)
+            } catch (_: Throwable) {
+            }
+
+            synchronized(lock) {
+                running = false
+
+                if (service != null) {
+                    runNextLocked()
+                } else if (queue.isNotEmpty()) {
+                    bindLocked()
+                }
+            }
+        }.start()
+    }
+
+    fun unbind() {
+        synchronized(lock) {
+            queue.clear()
+            running = false
+
+            try {
+                Shizuku.unbindUserService(
+                    serviceArgs,
+                    connection,
+                    true
+                )
+            } catch (_: Throwable) {
+            }
+
+            service = null
+            binding = false
+        }
     }
 }
