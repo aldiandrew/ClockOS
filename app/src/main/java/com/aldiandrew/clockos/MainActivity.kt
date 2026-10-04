@@ -1,9 +1,7 @@
 package com.aldiandrew.clockos
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
-import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -30,7 +28,6 @@ class MainActivity : ComponentActivity() {
                     prefs = prefs,
                     shizukuReady = shell.isAvailable() && shell.hasPermission(),
                     onRequestShizuku = { shell.requestPermission() },
-                    onOverlay = { openOverlaySettings() },
                     onStart = { applyClock(true) },
                     onStop = { applyClock(false) }
                 )
@@ -38,26 +35,56 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun openOverlaySettings() {
-        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-    }
-
     private fun applyClock(enable: Boolean) {
-        val command = if (enable) "cmd statusbar send-disable-flag clock"
-        else "cmd statusbar send-disable-flag none"
-        shell.execute(command) { result ->
-            runOnUiThread {
-                if (result.startsWith("exit=0")) {
-                    if (enable && Settings.canDrawOverlays(this)) {
-                        startForegroundService(Intent(this, ClockOverlayService::class.java))
-                    } else if (enable) {
-                        openOverlaySettings()
-                    } else {
+        if (!enable) {
+            shell.execute("cmd statusbar send-disable-flag none") { result ->
+                runOnUiThread {
+                    if (result.startsWith("exit=0")) {
                         stopService(Intent(this, ClockOverlayService::class.java))
                         Toast.makeText(this, "Native clock restored", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this, result.take(300), Toast.LENGTH_LONG).show()
                     }
-                } else {
-                    Toast.makeText(this, result.take(200), Toast.LENGTH_LONG).show()
+                }
+            }
+            return
+        }
+
+        // Duos-style approach: Shizuku changes the AppOp directly.
+        // The user does not need to open the "Display over other apps" page.
+        shell.execute(
+            "appops set $packageName android:system_alert_window allow"
+        ) { appOpsResult ->
+            if (!appOpsResult.startsWith("exit=0")) {
+                runOnUiThread {
+                    Toast.makeText(
+                        this,
+                        "Shizuku could not enable the status-bar window permission:\n" +
+                            appOpsResult.take(250),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                return@execute
+            }
+
+            shell.execute("cmd statusbar send-disable-flag clock") { clockResult ->
+                runOnUiThread {
+                    if (clockResult.startsWith("exit=0")) {
+                        try {
+                            startForegroundService(
+                                Intent(this, ClockOverlayService::class.java)
+                            )
+                        } catch (t: Throwable) {
+                            Toast.makeText(
+                                this,
+                                "Could not start ClockOS: " +
+                                    (t.message ?: t.javaClass.simpleName),
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    } else {
+                        Toast.makeText(this, clockResult.take(300), Toast.LENGTH_LONG).show()
+                    }
                 }
             }
         }
@@ -70,7 +97,6 @@ private fun ClockScreen(
     prefs: ClockPrefs,
     shizukuReady: Boolean,
     onRequestShizuku: () -> Unit,
-    onOverlay: () -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit
 ) {
@@ -88,10 +114,16 @@ private fun ClockScreen(
         ) {
             Spacer(Modifier.height(8.dp))
             Text(if (shizukuReady) "Shizuku: ready" else "Shizuku: not ready")
-            if (!shizukuReady) Button(onClick = onRequestShizuku) { Text("Connect Shizuku") }
-            OutlinedButton(onClick = onOverlay, modifier = Modifier.fillMaxWidth()) {
-                Text("Allow overlay")
+
+            if (!shizukuReady) {
+                Button(onClick = onRequestShizuku) { Text("Connect Shizuku") }
             }
+
+            Text(
+                "ClockOS uses Shizuku to enable its status-bar window. " +
+                    "No manual Display over other apps setup is required.",
+                style = MaterialTheme.typography.bodySmall
+            )
 
             SettingSwitch("24-hour", settings.format24) { save("format24", it) }
             SettingSwitch("Seconds", settings.showSeconds) { save("showSeconds", it) }
@@ -143,7 +175,11 @@ private fun ClockScreen(
 }
 
 @Composable
-private fun SettingSwitch(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun SettingSwitch(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
