@@ -240,13 +240,32 @@ class MainActivity : ComponentActivity() {
                     return@runOnUiThread
                 }
 
-                // Keep the native clock view in SystemUI so its measured
-                // width still reserves the notification area. A Shizuku FRRO
-                // makes the native clock color transparent instead of removing
-                // the view from the layout.
+                // Clear the old DISABLE_CLOCK state left by older
+                // ClockOS builds before enabling the transparent resource
+                // overlay. This restores the native view's layout slot.
                 shell.execute(
-                    "clockos:overlay:enable"
-                ) { overlayResult ->
+                    "cmd statusbar send-disable-flag none"
+                ) { restoreResult ->
+                    runOnUiThread {
+                        if (
+                            !restoreResult
+                                .startsWith("exit=0")
+                        ) {
+                            Toast.makeText(
+                                this,
+                                restoreResult.take(250),
+                                Toast.LENGTH_LONG
+                            ).show()
+                            return@runOnUiThread
+                        }
+
+                        // Keep the native clock view in SystemUI so its measured
+                        // width still reserves the notification area. A Shizuku
+                        // FRRO makes the native clock color transparent instead
+                        // of removing the view from the layout.
+                        shell.execute(
+                            "clockos:overlay:enable"
+                        ) { overlayResult ->
                     runOnUiThread {
                         if (
                             !overlayResult
@@ -290,6 +309,8 @@ class MainActivity : ComponentActivity() {
                                     ),
                                 Toast.LENGTH_LONG
                             ).show()
+                        }
+                    }
                         }
                     }
                 }
