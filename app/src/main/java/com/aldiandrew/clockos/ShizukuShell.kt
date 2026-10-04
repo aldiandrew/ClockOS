@@ -106,6 +106,61 @@ class ShizukuShell(private val context: Context) {
         }
     }
 
+    fun setStatusBarIcon(
+        slot: String,
+        packageName: String,
+        iconId: Int,
+        iconLevel: Int,
+        contentDescription: String,
+        callback: (String) -> Unit
+    ) {
+        invokeUserService { service ->
+            service.setStatusBarIcon(
+                slot,
+                packageName,
+                iconId,
+                iconLevel,
+                contentDescription
+            )
+        }.also { result ->
+            if (result == null) {
+                callback("error=service unavailable")
+            } else {
+                callback(result)
+            }
+        }
+    }
+
+    fun removeStatusBarIcon(
+        slot: String,
+        callback: (String) -> Unit
+    ) {
+        invokeUserService { service ->
+            service.removeStatusBarIcon(slot)
+        }.also { result ->
+            if (result == null) {
+                callback("error=service unavailable")
+            } else {
+                callback(result)
+            }
+        }
+    }
+
+    private fun invokeUserService(
+        action: (IUserService) -> String
+    ): String? {
+        val current = service
+        if (current != null) {
+            return try {
+                action(current)
+            } catch (t: Throwable) {
+                "error=$t"
+            }
+        }
+
+        return null
+    }
+
     fun unbind() {
         try {
             Shizuku.unbindUserService(serviceArgs, connection, true)
