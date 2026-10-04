@@ -312,14 +312,6 @@ class ClockOverlayService : Service() {
                     )
                 }
 
-                if (settings.showDay) {
-                    add(
-                        SimpleDateFormat(
-                            "EEE",
-                            Locale.getDefault()
-                        ).format(now)
-                    )
-                }
             }
 
         val rendered =
