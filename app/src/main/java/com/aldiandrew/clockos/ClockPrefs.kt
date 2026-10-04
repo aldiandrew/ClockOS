@@ -7,6 +7,10 @@ data class ClockSettings(
     val showSeconds: Boolean = false,
     val showDate: Boolean = false,
     val showDay: Boolean = false,
+    val dateFormat: String = "dd/MM",
+    val customDateFormat: String = "",
+    val dateStyle: Int = 0,
+    val amPmStyle: Int = 2,
     val sizeSp: Float = 14f,
     val weight: Int = 500
 )
@@ -23,6 +27,14 @@ class ClockPrefs(context: Context) {
         showSeconds = prefs.getBoolean("showSeconds", false),
         showDate = prefs.getBoolean("showDate", false),
         showDay = prefs.getBoolean("showDay", false),
+        dateFormat = prefs.getString("dateFormat", "dd/MM")
+            ?: "dd/MM",
+        customDateFormat = prefs.getString("customDateFormat", "")
+            ?: "",
+        dateStyle = prefs.getInt("dateStyle", 0)
+            .coerceIn(0, 2),
+        amPmStyle = prefs.getInt("amPmStyle", 2)
+            .coerceIn(0, 2),
         sizeSp = prefs.getFloat("sizeSp", 14f)
             .coerceIn(10f, 22f),
         weight = prefs.getInt("weight", 500)
