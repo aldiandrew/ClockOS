@@ -12,9 +12,10 @@ import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.os.SystemClock;
-import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.TypedValue;
+
+import org.xmlpull.v1.XmlPullParser;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -24,12 +25,14 @@ public final class StatusBarClockDrawable extends Drawable {
     private static final String AUTO_NS =
             "http://schemas.android.com/apk/res-auto";
 
-    private final Resources resources;
-    private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.SUBPIXEL_TEXT_FLAG);
-
+    private Resources resources;
     private float sizeSp = 14f;
     private int level;
     private ColorFilter colorFilter;
+
+    private final Paint paint =
+            new Paint(Paint.ANTI_ALIAS_FLAG | Paint.SUBPIXEL_TEXT_FLAG);
+
     private final Runnable ticker = new Runnable() {
         @Override
         public void run() {
@@ -37,18 +40,37 @@ public final class StatusBarClockDrawable extends Drawable {
         }
     };
 
-    public StatusBarClockDrawable(Resources resources, AttributeSet attrs) {
-        this.resources = resources;
-        if (attrs != null) {
-            sizeSp = attrs.getAttributeFloatValue(AUTO_NS, "sizeSp", 14f);
-        }
+    public StatusBarClockDrawable() {
+        resources = Resources.getSystem();
         paint.setDither(true);
         updateTypeface();
     }
 
     @Override
-    protected boolean onLevelChange(int level) {
-        this.level = level;
+    public void inflate(
+            Resources res,
+            XmlPullParser parser,
+            AttributeSet attrs,
+            android.content.res.Resources.Theme theme
+    ) {
+        super.inflate(res, parser, attrs, theme);
+        resources = res;
+
+        if (attrs != null) {
+            sizeSp = attrs.getAttributeFloatValue(
+                    AUTO_NS,
+                    "sizeSp",
+                    14f
+            );
+        }
+
+        updateTypeface();
+        invalidateSelf();
+    }
+
+    @Override
+    protected boolean onLevelChange(int newLevel) {
+        level = newLevel;
         updateTypeface();
         invalidateSelf();
         return true;
@@ -71,7 +93,10 @@ public final class StatusBarClockDrawable extends Drawable {
     @Override
     public void setTint(int color) {
         super.setTint(color);
-        colorFilter = new PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN);
+        colorFilter = new PorterDuffColorFilter(
+                color,
+                PorterDuff.Mode.SRC_IN
+        );
         paint.setColorFilter(colorFilter);
         invalidateSelf();
     }
@@ -109,12 +134,15 @@ public final class StatusBarClockDrawable extends Drawable {
         Paint.FontMetrics fm = paint.getFontMetrics();
         float width = paint.measureText(text);
 
-        float x = bounds.left + Math.max(0f, (bounds.width() - width) / 2f);
+        float x = bounds.left + Math.max(
+                0f,
+                (bounds.width() - width) / 2f
+        );
+
         float baseline = bounds.top
                 + (bounds.height() - fm.bottom - fm.top) / 2f;
 
         canvas.drawText(text, x, baseline, paint);
-
         scheduleNextTick();
     }
 
@@ -122,11 +150,13 @@ public final class StatusBarClockDrawable extends Drawable {
     public int getIntrinsicHeight() {
         return Math.max(
                 1,
-                Math.round(TypedValue.applyDimension(
-                        TypedValue.COMPLEX_UNIT_SP,
-                        24f,
-                        resources.getDisplayMetrics()
-                ))
+                Math.round(
+                        TypedValue.applyDimension(
+                                TypedValue.COMPLEX_UNIT_SP,
+                                24f,
+                                resources.getDisplayMetrics()
+                        )
+                )
         );
     }
 
@@ -137,11 +167,14 @@ public final class StatusBarClockDrawable extends Drawable {
                 sizeSp,
                 resources.getDisplayMetrics()
         );
+
         paint.setTextSize(textSizePx);
         paint.setTypeface(currentTypeface());
 
-        String sample = formatSample();
-        return Math.max(1, Math.round(paint.measureText(sample)));
+        return Math.max(
+                1,
+                Math.round(paint.measureText(formatSample()))
+        );
     }
 
     @Override
@@ -157,9 +190,18 @@ public final class StatusBarClockDrawable extends Drawable {
 
         StringBuilder pattern = new StringBuilder();
         pattern.append(format24 ? "HH:mm" : "hh:mm a");
-        if (showSeconds) pattern.append(":ss");
-        if (showDate) pattern.append(" dd/MM");
-        if (showDay) pattern.append(" EEE");
+
+        if (showSeconds) {
+            pattern.append(":ss");
+        }
+
+        if (showDate) {
+            pattern.append(" dd/MM");
+        }
+
+        if (showDay) {
+            pattern.append(" EEE");
+        }
 
         return new SimpleDateFormat(
                 pattern.toString(),
@@ -175,9 +217,18 @@ public final class StatusBarClockDrawable extends Drawable {
 
         StringBuilder sample = new StringBuilder();
         sample.append(format24 ? "23:59" : "11:59 PM");
-        if (showSeconds) sample.append(":59");
-        if (showDate) sample.append(" 31/12");
-        if (showDay) sample.append(" Wed");
+
+        if (showSeconds) {
+            sample.append(":59");
+        }
+
+        if (showDate) {
+            sample.append(" 31/12");
+        }
+
+        if (showDay) {
+            sample.append(" Wed");
+        }
 
         return sample.toString();
     }
@@ -188,45 +239,61 @@ public final class StatusBarClockDrawable extends Drawable {
 
     private Typeface currentTypeface() {
         int weightCode = (level >> 4) & 0x0F;
+
         int weight;
         switch (weightCode) {
-            case 0: weight = 300; break;
-            case 2: weight = 500; break;
-            case 3: weight = 700; break;
-            default: weight = 400; break;
+            case 0:
+                weight = 300;
+                break;
+            case 2:
+                weight = 500;
+                break;
+            case 3:
+                weight = 700;
+                break;
+            default:
+                weight = 400;
+                break;
         }
 
         if (android.os.Build.VERSION.SDK_INT >= 28) {
-            return Typeface.create("sans-serif", weight, false);
+            return Typeface.create(
+                    "sans-serif",
+                    weight,
+                    false
+            );
         }
 
         return Typeface.create(
                 "sans-serif",
-                weight >= 600 ? Typeface.BOLD : Typeface.NORMAL
+                weight >= 600
+                        ? Typeface.BOLD
+                        : Typeface.NORMAL
         );
     }
 
     private void refreshTint() {
-        if (android.os.Build.VERSION.SDK_INT >= 21) {
-            ColorStateList tint = getTintList();
-            if (tint != null) {
-                int color = tint.getColorForState(
-                        getState(),
-                        tint.getDefaultColor()
-                );
-                colorFilter = new PorterDuffColorFilter(
-                        color,
-                        PorterDuff.Mode.SRC_IN
-                );
-                paint.setColorFilter(colorFilter);
-            }
+        ColorStateList tint = getTintList();
+
+        if (tint != null) {
+            int color = tint.getColorForState(
+                    getState(),
+                    tint.getDefaultColor()
+            );
+
+            colorFilter = new PorterDuffColorFilter(
+                    color,
+                    PorterDuff.Mode.SRC_IN
+            );
+
+            paint.setColorFilter(colorFilter);
         }
     }
 
     private void scheduleNextTick() {
         long now = System.currentTimeMillis();
-        long next;
 
+        long next;
         if ((level & 0x02) != 0) {
             next = now + (1000L - (now % 1000L));
         } else {
@@ -235,7 +302,8 @@ public final class StatusBarClockDrawable extends Drawable {
 
         scheduleSelf(
                 ticker,
-                SystemClock.uptimeMillis() + Math.max(250L, next - now)
+                SystemClock.uptimeMillis()
+                        + Math.max(250L, next - now)
         );
     }
 }
