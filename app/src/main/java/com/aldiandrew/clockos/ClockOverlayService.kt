@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -20,6 +21,8 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowManager
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -40,10 +43,13 @@ class ClockOverlayService : Service() {
 
         private const val EXTRA_RELATIVE_SIZE = 0.70f
         private const val CLOCK_EDGE_MARGIN_DP = 4f
+        private const val CLOCK_VERTICAL_OFFSET_DP = -1f
     }
 
     private lateinit var windowManager: WindowManager
+    private lateinit var statusBarContentView: LinearLayout
     private lateinit var clockView: TextView
+    private lateinit var notificationIconView: LinearLayout
     private lateinit var params: WindowManager.LayoutParams
     private lateinit var shell: ShizukuShell
     private lateinit var systemUiContext: Context
@@ -58,6 +64,12 @@ class ClockOverlayService : Service() {
 
     private var lastRendered = ""
     private var lastSizeSp = Float.NaN
+
+    private val notificationStoreListener: () -> Unit = {
+        handler.post {
+            renderNotificationIcons()
+        }
+    }
 
     private val tick = object : Runnable {
         override fun run() {
@@ -139,6 +151,44 @@ class ClockOverlayService : Service() {
             clockView =
                 createSystemUiStyledClock()
 
+            notificationIconView =
+                LinearLayout(systemUiContext).apply {
+                    orientation =
+                        LinearLayout.HORIZONTAL
+                    gravity =
+                        Gravity.CENTER_VERTICAL
+                    clipChildren = false
+                    clipToPadding = false
+                    setBackgroundColor(Color.TRANSPARENT)
+                }
+
+            statusBarContentView =
+                LinearLayout(systemUiContext).apply {
+                    orientation =
+                        LinearLayout.HORIZONTAL
+                    gravity =
+                        Gravity.CENTER_VERTICAL
+                    clipChildren = true
+                    clipToPadding = false
+                    setBackgroundColor(Color.TRANSPARENT)
+
+                    addView(
+                        clockView,
+                        LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                            LinearLayout.LayoutParams.MATCH_PARENT
+                        )
+                    )
+
+                    addView(
+                        notificationIconView,
+                        LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                            LinearLayout.LayoutParams.MATCH_PARENT
+                        )
+                    )
+                }
+
             params = WindowManager.LayoutParams(
                 nativeClockSlotWidthPx(),
                 statusBarSystemIconsHeightPx(),
@@ -164,20 +214,28 @@ class ClockOverlayService : Service() {
             }
 
             windowManager.addView(
-                clockView,
+                statusBarContentView,
                 params
             )
 
-            clockView.setOnApplyWindowInsetsListener { view, insets ->
+            statusBarContentView.setOnApplyWindowInsetsListener {
+                    view,
+                    insets
+                ->
                 updatePosition(view, insets)
                 insets
             }
 
-            clockView.post {
+            NotificationIconStore.register(
+                notificationStoreListener
+            )
+
+            statusBarContentView.post {
                 updatePosition(
-                    clockView,
-                    clockView.rootWindowInsets
+                    statusBarContentView,
+                    statusBarContentView.rootWindowInsets
                 )
+                renderNotificationIcons()
             }
 
             updateClock()
@@ -200,13 +258,17 @@ class ClockOverlayService : Service() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
 
+        NotificationIconStore.unregister(
+            notificationStoreListener
+        )
+
         try {
             if (
                 ::windowManager.isInitialized &&
-                ::clockView.isInitialized
+                ::statusBarContentView.isInitialized
             ) {
                 windowManager.removeViewImmediate(
-                    clockView
+                    statusBarContentView
                 )
             }
         } catch (_: Throwable) {
@@ -246,14 +308,12 @@ class ClockOverlayService : Service() {
             }
         }
 
-        if (view.typeface == null) {
-            view.setTypeface(
-                Typeface.create(
-                    "sans-serif-medium",
-                    Typeface.NORMAL
-                )
+        view.setTypeface(
+            Typeface.create(
+                "sans-serif-medium",
+                Typeface.NORMAL
             )
-        }
+        )
 
         view.setSingleLine(true)
         view.includeFontPadding = false
@@ -470,7 +530,7 @@ class ClockOverlayService : Service() {
             statusBarClockTopY()
 
         val targetWidth =
-            renderedClockWidthPx(insets)
+            renderedStatusBarContentWidthPx(insets)
 
         val targetHeight =
             statusBarSystemIconsHeightPx()
@@ -559,16 +619,22 @@ class ClockOverlayService : Service() {
                 statusBarHeight - contentHeight
             ) / 2
 
-        return maxOf(
-            systemUiPaddingTopPx(),
-            centered.coerceAtLeast(0)
-        )
+        val base =
+            maxOf(
+                systemUiPaddingTopPx(),
+                centered.coerceAtLeast(0)
+            )
+
+        return (
+            base +
+                dp(CLOCK_VERTICAL_OFFSET_DP)
+        ).coerceAtLeast(0)
     }
 
-    private fun renderedClockWidthPx(
+    private fun renderedStatusBarContentWidthPx(
         insets: WindowInsets?
     ): Int {
-        if (!::clockView.isInitialized) {
+        if (!::statusBarContentView.isInitialized) {
             return nativeClockSlotWidthPx()
         }
 
@@ -577,7 +643,7 @@ class ClockOverlayService : Service() {
 
         val available =
             (
-                resources.displayMetrics.widthPixels -
+                statusBarContentRightBoundaryPx(insets) -
                     startX -
                     dp(CLOCK_EDGE_MARGIN_DP)
             ).coerceAtLeast(
@@ -596,18 +662,167 @@ class ClockOverlayService : Service() {
                 View.MeasureSpec.EXACTLY
             )
 
-        clockView.measure(
+        statusBarContentView.measure(
             widthSpec,
             heightSpec
         )
 
         return maxOf(
             nativeClockSlotWidthPx(),
-            clockView.measuredWidth
+            statusBarContentView.measuredWidth
         ).coerceAtMost(
             available
         )
     }
+
+    private fun statusBarContentRightBoundaryPx(
+        insets: WindowInsets?
+    ): Int {
+        val width =
+            resources.displayMetrics.widthPixels
+
+        if (
+            insets == null ||
+            Build.VERSION.SDK_INT < 28
+        ) {
+            return width
+        }
+
+        val cutout =
+            insets.displayCutout
+                ?: return width
+
+        val leftSafeInset =
+            cutout.safeInsetLeft
+
+        return if (
+            leftSafeInset > statusBarStartX(insets)
+        ) {
+            leftSafeInset
+        } else {
+            width
+        }
+    }
+
+    private fun renderNotificationIcons() {
+        if (
+            !::notificationIconView.isInitialized ||
+            !::statusBarContentView.isInitialized
+        ) {
+            return
+        }
+
+        notificationIconView.removeAllViews()
+
+        val entries =
+            NotificationIconStore.snapshot()
+
+        if (entries.isEmpty()) {
+            updatePosition(
+                statusBarContentView,
+                statusBarContentView.rootWindowInsets
+            )
+            return
+        }
+
+        val iconSize =
+            systemUiNotificationIconSizePx()
+
+        val horizontalPadding =
+            systemUiNotificationIconHorizontalPaddingPx()
+
+        entries.forEach { entry ->
+            val drawable =
+                loadNotificationIcon(entry)
+                    ?: return@forEach
+
+            drawable.mutate()
+
+            val tint =
+                if (lastColor != Int.MIN_VALUE) {
+                    lastColor
+                } else {
+                    Color.WHITE
+                }
+
+            drawable.setTint(tint)
+
+            val icon =
+                ImageView(systemUiContext).apply {
+                    setImageDrawable(drawable)
+                    scaleType =
+                        ImageView.ScaleType.CENTER_INSIDE
+                    setColorFilter(tint, android.graphics.PorterDuff.Mode.SRC_IN)
+                    importantForAccessibility =
+                        View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                }
+
+            notificationIconView.addView(
+                icon,
+                LinearLayout.LayoutParams(
+                    iconSize,
+                    iconSize
+                ).apply {
+                    marginStart =
+                        horizontalPadding
+                    marginEnd =
+                        horizontalPadding
+                }
+            )
+        }
+
+        statusBarContentView.requestLayout()
+        statusBarContentView.post {
+            updatePosition(
+                statusBarContentView,
+                statusBarContentView.rootWindowInsets
+            )
+        }
+    }
+
+    private fun loadNotificationIcon(
+        entry: ClockNotificationEntry
+    ): Drawable? {
+        val icon =
+            entry.notification.notification.smallIcon
+                ?: return null
+
+        return try {
+            val packageContext =
+                createPackageContext(
+                    entry.notification.packageName,
+                    0
+                )
+
+            icon.loadDrawable(
+                packageContext
+            )
+        } catch (_: Throwable) {
+            try {
+                icon.loadDrawable(this)
+            } catch (_: Throwable) {
+                null
+            }
+        }
+    }
+
+    private fun systemUiNotificationIconSizePx(): Int =
+        systemUiResources()
+            ?.getDimensionPixelSizeByName(
+                "status_bar_icon_size"
+            )
+            ?: systemUiResources()
+                ?.getDimensionPixelSizeByName(
+                    "status_bar_icon_size_sp"
+                )
+            ?: dp(15f)
+
+    private fun systemUiNotificationIconHorizontalPaddingPx(): Int =
+        systemUiResources()
+            ?.getDimensionPixelSizeByName(
+                "status_bar_horizontal_padding"
+            )
+            ?: dp(2f)
 
     private fun nativeClockSlotWidthPx(): Int {
         val start =
@@ -777,6 +992,7 @@ class ClockOverlayService : Service() {
                 ) {
                     lastColor = color
                     clockView.setTextColor(color)
+                    renderNotificationIcons()
                 }
             }
         }
