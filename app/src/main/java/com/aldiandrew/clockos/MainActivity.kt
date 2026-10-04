@@ -406,13 +406,6 @@ private fun ClockScreen(
             }
 
             SettingSwitch(
-                label = "Seconds",
-                checked = settings.showSeconds
-            ) {
-                save("showSeconds", it)
-            }
-
-            SettingSwitch(
                 label = "Date",
                 checked = settings.showDate
             ) {
