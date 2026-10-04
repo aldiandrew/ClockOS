@@ -1,7 +1,6 @@
 package com.aldiandrew.clockos;
 
 import android.content.res.ColorStateList;
-import android.content.res.Resources;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
@@ -25,10 +24,11 @@ public final class StatusBarClockDrawable extends Drawable {
     private static final String AUTO_NS =
             "http://schemas.android.com/apk/res-auto";
 
-    private Resources resources;
     private float sizeSp = 14f;
     private int level;
+    private int alpha = 255;
     private ColorFilter colorFilter;
+    private ColorStateList tintList;
 
     private final Paint paint =
             new Paint(Paint.ANTI_ALIAS_FLAG | Paint.SUBPIXEL_TEXT_FLAG);
@@ -41,20 +41,18 @@ public final class StatusBarClockDrawable extends Drawable {
     };
 
     public StatusBarClockDrawable() {
-        resources = Resources.getSystem();
         paint.setDither(true);
         updateTypeface();
     }
 
     @Override
     public void inflate(
-            Resources res,
+            android.content.res.Resources res,
             XmlPullParser parser,
             AttributeSet attrs,
             android.content.res.Resources.Theme theme
     ) {
         super.inflate(res, parser, attrs, theme);
-        resources = res;
 
         if (attrs != null) {
             sizeSp = attrs.getAttributeFloatValue(
@@ -77,6 +75,18 @@ public final class StatusBarClockDrawable extends Drawable {
     }
 
     @Override
+    public void setAlpha(int alpha) {
+        this.alpha = alpha;
+        paint.setAlpha(alpha);
+        invalidateSelf();
+    }
+
+    @Override
+    public int getAlpha() {
+        return alpha;
+    }
+
+    @Override
     public boolean setState(int[] stateSet) {
         boolean changed = super.setState(stateSet);
         refreshTint();
@@ -85,14 +95,20 @@ public final class StatusBarClockDrawable extends Drawable {
 
     @Override
     public void setTintList(ColorStateList tint) {
+        tintList = tint;
         super.setTintList(tint);
         refreshTint();
         invalidateSelf();
     }
 
     @Override
+    public ColorStateList getTintList() {
+        return tintList;
+    }
+
+    @Override
     public void setTint(int color) {
-        super.setTint(color);
+        tintList = ColorStateList.valueOf(color);
         colorFilter = new PorterDuffColorFilter(
                 color,
                 PorterDuff.Mode.SRC_IN
@@ -120,12 +136,12 @@ public final class StatusBarClockDrawable extends Drawable {
         float textSizePx = TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_SP,
                 sizeSp,
-                resources.getDisplayMetrics()
+                getDensity().getDisplayMetrics()
         );
 
         paint.setTextSize(textSizePx);
         paint.setColor(Color.WHITE);
-        paint.setAlpha(255);
+        paint.setAlpha(alpha);
         paint.setTypeface(currentTypeface());
         paint.setTextAlign(Paint.Align.LEFT);
         paint.setColorFilter(colorFilter);
@@ -154,7 +170,7 @@ public final class StatusBarClockDrawable extends Drawable {
                         TypedValue.applyDimension(
                                 TypedValue.COMPLEX_UNIT_SP,
                                 24f,
-                                resources.getDisplayMetrics()
+                                getDensity().getDisplayMetrics()
                         )
                 )
         );
@@ -165,7 +181,7 @@ public final class StatusBarClockDrawable extends Drawable {
         float textSizePx = TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_SP,
                 sizeSp,
-                resources.getDisplayMetrics()
+                getDensity().getDisplayMetrics()
         );
 
         paint.setTextSize(textSizePx);
@@ -180,6 +196,16 @@ public final class StatusBarClockDrawable extends Drawable {
     @Override
     public int getOpacity() {
         return android.graphics.PixelFormat.TRANSLUCENT;
+    }
+
+    private android.content.res.Resources getResourcesSafe() {
+        return getBounds().isEmpty()
+                ? android.content.res.Resources.getSystem()
+                : android.content.res.Resources.getSystem();
+    }
+
+    private android.util.DisplayMetrics getDensity() {
+        return android.content.res.Resources.getSystem().getDisplayMetrics();
     }
 
     private String formatNow() {
@@ -240,54 +266,30 @@ public final class StatusBarClockDrawable extends Drawable {
     private Typeface currentTypeface() {
         int weightCode = (level >> 4) & 0x0F;
 
-        int weight;
-        switch (weightCode) {
-            case 0:
-                weight = 300;
-                break;
-            case 2:
-                weight = 500;
-                break;
-            case 3:
-                weight = 700;
-                break;
-            default:
-                weight = 400;
-                break;
+        int style = Typeface.NORMAL;
+        if (weightCode >= 3) {
+            style = Typeface.BOLD;
         }
 
-        if (android.os.Build.VERSION.SDK_INT >= 28) {
-            return Typeface.create(
-                    "sans-serif",
-                    weight,
-                    false
-            );
-        }
-
-        return Typeface.create(
-                "sans-serif",
-                weight >= 600
-                        ? Typeface.BOLD
-                        : Typeface.NORMAL
-        );
+        return Typeface.create("sans-serif", style);
     }
 
     private void refreshTint() {
-        ColorStateList tint = getTintList();
-
-        if (tint != null) {
-            int color = tint.getColorForState(
-                    getState(),
-                    tint.getDefaultColor()
-            );
-
-            colorFilter = new PorterDuffColorFilter(
-                    color,
-                    PorterDuff.Mode.SRC_IN
-            );
-
-            paint.setColorFilter(colorFilter);
+        if (tintList == null) {
+            return;
         }
+
+        int color = tintList.getColorForState(
+                getState(),
+                tintList.getDefaultColor()
+        );
+
+        colorFilter = new PorterDuffColorFilter(
+                color,
+                PorterDuff.Mode.SRC_IN
+        );
+
+        paint.setColorFilter(colorFilter);
     }
 
     private void scheduleNextTick() {
