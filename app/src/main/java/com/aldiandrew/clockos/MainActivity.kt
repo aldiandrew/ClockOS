@@ -5,9 +5,33 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -95,18 +119,12 @@ class MainActivity : ComponentActivity() {
                     prefs = prefs,
                     shizukuReady = shizukuReady,
                     clockEnabled = clockEnabled,
-                    onRequestShizuku = {
-                        requestShizuku()
-                    },
-                    onStart = {
-                        applyClock(true)
-                    },
-                    onStop = {
-                        applyClock(false)
-                    },
+                    onRequestShizuku = ::requestShizuku,
+                    onStart = { applyClock(true) },
+                    onStop = { applyClock(false) },
                     onSettingsChanged = {
                         if (clockEnabled) {
-                            sendSettingsChangedBroadcast()
+                            sendSettingsChanged()
                         }
                     }
                 )
@@ -162,13 +180,12 @@ class MainActivity : ComponentActivity() {
 
         if (shell.hasPermission()) {
             refreshShizukuState()
-            return
+        } else {
+            shell.requestPermission()
         }
-
-        shell.requestPermission()
     }
 
-    private fun sendSettingsChangedBroadcast() {
+    private fun sendSettingsChanged() {
         try {
             startService(
                 Intent(
@@ -210,8 +227,6 @@ class MainActivity : ComponentActivity() {
                 )
             )
 
-            // Restore the native clock immediately. The service also performs
-            // this restoration from onDestroy as a second safety net.
             shell.execute(
                 "cmd statusbar send-disable-flag none"
             ) { }
@@ -223,25 +238,24 @@ class MainActivity : ComponentActivity() {
                 "ClockOS stopped",
                 Toast.LENGTH_SHORT
             ).show()
+
             return
         }
 
         shell.execute(
             "appops set $packageName " +
                 "android:system_alert_window allow"
-        ) { result ->
+        ) { appOpResult ->
             runOnUiThread {
-                if (!result.startsWith("exit=0")) {
+                if (!appOpResult.startsWith("exit=0")) {
                     Toast.makeText(
                         this,
-                        result.take(300),
+                        appOpResult.take(300),
                         Toast.LENGTH_LONG
                     ).show()
                     return@runOnUiThread
                 }
 
-                // Disable the native SystemUI clock before starting the
-                // replacement overlay. The service restores it on shutdown.
                 shell.execute(
                     "cmd statusbar send-disable-flag clock"
                 ) { disableResult ->
@@ -252,7 +266,7 @@ class MainActivity : ComponentActivity() {
                         ) {
                             Toast.makeText(
                                 this,
-                                disableResult.take(250),
+                                disableResult.take(300),
                                 Toast.LENGTH_LONG
                             ).show()
                             return@runOnUiThread
@@ -290,6 +304,8 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+            }
+        }
     }
 }
 
@@ -305,9 +321,7 @@ private fun ClockScreen(
     onSettingsChanged: () -> Unit
 ) {
     var settings by remember {
-        mutableStateOf(
-            prefs.load()
-        )
+        mutableStateOf(prefs.load())
     }
 
     var customDateDialog by remember {
@@ -324,14 +338,8 @@ private fun ClockScreen(
         key: String,
         value: Any
     ) {
-        prefs.set(
-            key,
-            value
-        )
-
-        settings =
-            prefs.load()
-
+        prefs.set(key, value)
+        settings = prefs.load()
         onSettingsChanged()
     }
 
@@ -345,10 +353,11 @@ private fun ClockScreen(
         }
     ) { padding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 20.dp),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(horizontal = 20.dp),
             verticalArrangement =
                 Arrangement.spacedBy(10.dp)
         ) {
@@ -383,9 +392,8 @@ private fun ClockScreen(
             }
 
             Text(
-                "ClockOS uses the native SystemUI clock font " +
-                    "and status-bar tint. Date and day are controlled " +
-                    "by Date format.",
+                "The native clock is hidden while ClockOS is active. " +
+                    "ClockOS uses the native SystemUI font and tint.",
                 style =
                     MaterialTheme.typography.bodySmall
             )
@@ -394,39 +402,28 @@ private fun ClockScreen(
                 label = "24-hour",
                 checked = settings.format24
             ) {
-                save(
-                    "format24",
-                    it
-                )
+                save("format24", it)
             }
 
             SettingSwitch(
                 label = "Seconds",
                 checked = settings.showSeconds
             ) {
-                save(
-                    "showSeconds",
-                    it
-                )
+                save("showSeconds", it)
             }
 
             SettingSwitch(
                 label = "Date",
                 checked = settings.showDate
             ) {
-                save(
-                    "showDate",
-                    it
-                )
+                save("showDate", it)
             }
 
             if (settings.showDate) {
                 SettingDropdown(
                     label = "Date format",
                     selected =
-                        dateFormatLabel(
-                            settings
-                        ),
+                        dateFormatLabel(settings),
                     options =
                         CLOCKOS_DATE_FORMATS.map {
                             if (it == "CUSTOM") {
@@ -434,8 +431,7 @@ private fun ClockScreen(
                             } else {
                                 it
                             }
-                        },
-                    enabled = true
+                        }
                 ) { selected ->
                     val raw =
                         if (selected == "Custom") {
@@ -463,8 +459,7 @@ private fun ClockScreen(
                             settings.dateStyle
                         ],
                     options =
-                        CLOCKOS_DATE_STYLES,
-                    enabled = true
+                        CLOCKOS_DATE_STYLES
                 ) { selected ->
                     save(
                         "dateStyle",
@@ -483,8 +478,7 @@ private fun ClockScreen(
                             settings.amPmStyle
                         ],
                     options =
-                        CLOCKOS_AM_PM_STYLES,
-                    enabled = true
+                        CLOCKOS_AM_PM_STYLES
                 ) { selected ->
                     save(
                         "amPmStyle",
@@ -508,16 +502,13 @@ private fun ClockScreen(
                         settings.copy(
                             sizeSp = it
                         )
-
                     prefs.set(
                         "sizeSp",
                         it
                     )
                 },
                 onValueChangeFinished = {
-                    settings =
-                        prefs.load()
-
+                    settings = prefs.load()
                     onSettingsChanged()
                 },
                 valueRange = 10f..22f
@@ -587,10 +578,8 @@ private fun ClockScreen(
                                 "customDateFormat",
                                 value
                             )
-
                             settings =
                                 prefs.load()
-
                             onSettingsChanged()
                         }
 
@@ -618,7 +607,6 @@ private fun SettingDropdown(
     label: String,
     selected: String,
     options: List<String>,
-    enabled: Boolean,
     onSelected: (String) -> Unit
 ) {
     var expanded by remember {
@@ -626,13 +614,13 @@ private fun SettingDropdown(
     }
 
     Box(
-        modifier = Modifier.fillMaxWidth()
+        modifier =
+            Modifier.fillMaxWidth()
     ) {
         OutlinedButton(
             onClick = {
                 expanded = true
             },
-            enabled = enabled,
             modifier =
                 Modifier.fillMaxWidth()
         ) {
@@ -675,16 +663,13 @@ private fun SettingDropdown(
 
 private fun dateFormatLabel(
     settings: ClockSettings
-): String {
-    return if (
-        settings.dateFormat == "CUSTOM"
-    ) {
+): String =
+    if (settings.dateFormat == "CUSTOM") {
         settings.customDateFormat
             .ifBlank { "Custom" }
     } else {
         settings.dateFormat
     }
-}
 
 @Composable
 private fun SettingSwitch(
@@ -692,7 +677,7 @@ private fun SettingSwitch(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    Row(
+    androidx.compose.foundation.layout.Row(
         modifier =
             Modifier.fillMaxWidth(),
         horizontalArrangement =
@@ -704,8 +689,7 @@ private fun SettingSwitch(
 
         Switch(
             checked = checked,
-            onCheckedChange =
-                onCheckedChange
+            onCheckedChange = onCheckedChange
         )
     }
 }
