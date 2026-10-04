@@ -44,10 +44,11 @@ class ClockOverlayService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
 
-    private var lastColor = Color.WHITE
+    private var lastColor = Int.MIN_VALUE
     private var lastWidth = 0
     private var lastHeight = 0
     private var lastX = Int.MIN_VALUE
+    private var lastY = Int.MIN_VALUE
 
     private val tick = object : Runnable {
         override fun run() {
@@ -119,7 +120,6 @@ class ClockOverlayService : Service() {
                 android.graphics.PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
-
                 x = statusBarStartX()
                 y = statusBarClockTopY()
 
@@ -134,8 +134,14 @@ class ClockOverlayService : Service() {
                 }
             }
 
-            windowManager.addView(clockView, params)
+            windowManager.addView(
+                clockView,
+                params
+            )
 
+            // Do NOT disable the native SystemUI clock.
+            // Its real view keeps the notification layout space reserved.
+            // ClockOS is rendered directly above that slot.
             clockView.setOnApplyWindowInsetsListener { view, insets ->
                 updatePosition(view, insets)
                 insets
@@ -212,7 +218,11 @@ class ClockOverlayService : Service() {
                 view.setTextAppearance(styleId)
             } catch (_: Throwable) {
             }
-        } else {
+        }
+
+        // Keep a deterministic native-looking fallback on vendor builds
+        // where the SystemUI style is unavailable.
+        if (view.typeface == null) {
             view.setTypeface(
                 Typeface.create(
                     "sans-serif-medium",
@@ -288,17 +298,21 @@ class ClockOverlayService : Service() {
             }
         }
 
-        applyMainTextSize(settings.sizeSp)
+        clockView.textSize =
+            sp(settings.sizeSp.coerceIn(10f, 22f))
 
         clockView.text =
             buildClockSpannable(
                 timeText = timeText,
-                extras = extras,
-                availableWidth = nativeClockTextWidthPx()
+                extras = extras
             )
 
+        // Size controls the vertical text size. If the requested content
+        // becomes wider than the native clock slot, compress horizontally
+        // instead of shrinking the font size.
+        applyHorizontalFit()
+
         clockView.alpha = 1f
-        clockView.textScaleX = 1f
 
         updatePosition(
             clockView,
@@ -306,104 +320,30 @@ class ClockOverlayService : Service() {
         )
     }
 
-    private fun applyMainTextSize(
-        requestedSp: Float
-    ) {
-        val requested =
-            requestedSp.coerceIn(10f, 22f)
-
-        val maxMainWidth =
-            nativeClockTextWidthPx()
-                .coerceAtLeast(dp(32f))
-
-        var size = requested
-        val paint = clockView.paint
-
-        while (size > 8f) {
-            paint.textSize = sp(size)
-
-            val timeSample =
-                if (ClockPrefs(this).load().format24) {
-                    "23:59:59"
-                } else {
-                    "11:59:59"
-                }
-
-            if (
-                paint.measureText(timeSample) <=
-                    maxMainWidth
-            ) {
-                break
-            }
-
-            size -= 0.5f
-        }
-
-        clockView.setTextSize(
-            TypedValue.COMPLEX_UNIT_SP,
-            size
-        )
-    }
-
     private fun buildClockSpannable(
         timeText: String,
-        extras: List<String>,
-        availableWidth: Int
+        extras: List<String>
     ): CharSequence {
+        if (extras.isEmpty()) {
+            return SpannableStringBuilder(timeText)
+        }
+
         val builder =
             SpannableStringBuilder(timeText)
 
-        if (extras.isEmpty()) {
-            return builder
-        }
-
-        val basePaint =
-            android.graphics.Paint(clockView.paint).apply {
-                textSize = clockView.textSize
-            }
-
-        val separator = "  "
-
-        val extraText =
-            separator + extras.joinToString(
-                separator = "  "
-            )
-
-        val mainWidth =
-            basePaint.measureText(timeText)
-
-        var scale = 0.70f
-
-        val extraPaint =
-            android.graphics.Paint(basePaint)
-
-        while (scale >= 0.35f) {
-            extraPaint.textSize =
-                clockView.textSize * scale
-
-            val extraWidth =
-                extraPaint.measureText(extraText)
-
-            if (
-                mainWidth + extraWidth <=
-                    availableWidth
-            ) {
-                break
-            }
-
-            scale -= 0.05f
-        }
-
-        if (scale < 0.35f) {
-            scale = 0.35f
-        }
-
         val start = builder.length
+        val suffix =
+            "  " +
+                extras.joinToString(
+                    separator = "  "
+                )
 
-        builder.append(extraText)
+        builder.append(suffix)
 
+        // Keep date/day visually secondary, like the smaller AM/PM treatment
+        // used by native SystemUI clocks.
         builder.setSpan(
-            RelativeSizeSpan(scale),
+            RelativeSizeSpan(0.70f),
             start,
             builder.length,
             Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
@@ -412,13 +352,34 @@ class ClockOverlayService : Service() {
         return builder
     }
 
+    private fun applyHorizontalFit() {
+        if (!::clockView.isInitialized) return
+
+        val available =
+            nativeClockTextWidthPx()
+                .coerceAtLeast(dp(20f))
+
+        val measured =
+            clockView.paint.measureText(
+                clockView.text.toString()
+            )
+
+        clockView.textScaleX =
+            if (
+                measured > available &&
+                measured > 0f
+            ) {
+                available / measured
+            } else {
+                1f
+            }
+    }
+
     private fun updatePosition(
         view: View,
         insets: WindowInsets?
     ) {
-        if (!::params.isInitialized) {
-            return
-        }
+        if (!::params.isInitialized) return
 
         val targetX =
             statusBarStartX(insets)
@@ -434,6 +395,7 @@ class ClockOverlayService : Service() {
 
         if (
             targetX == lastX &&
+            targetY == lastY &&
             targetWidth == lastWidth &&
             targetHeight == lastHeight
         ) {
@@ -452,6 +414,7 @@ class ClockOverlayService : Service() {
             )
 
             lastX = targetX
+            lastY = targetY
             lastWidth = targetWidth
             lastHeight = targetHeight
         } catch (_: Throwable) {
@@ -475,8 +438,10 @@ class ClockOverlayService : Service() {
                 )
 
             insetLeft = bars.left
+
             cutoutLeft =
-                insets.displayCutout?.safeInsetLeft
+                insets.displayCutout
+                    ?.safeInsetLeft
                     ?: 0
         } else if (
             insets != null &&
@@ -492,29 +457,17 @@ class ClockOverlayService : Service() {
                     ?: 0
         }
 
-        val parentPadding =
-            systemUiPaddingStartPx()
-
         return maxOf(
             insetLeft,
             cutoutLeft
-        ) + parentPadding
+        ) + systemUiPaddingStartPx()
     }
 
     private fun statusBarStartX(): Int =
         statusBarStartX(null)
 
-    private fun statusBarClockTopY(): Int {
-        val statusHeight =
-            statusBarHeightPx()
-
-        val contentHeight =
-            statusBarSystemIconsHeightPx()
-
-        return (
-            (statusHeight - contentHeight) / 2
-        ).coerceAtLeast(0)
-    }
+    private fun statusBarClockTopY(): Int =
+        systemUiPaddingTopPx()
 
     private fun nativeClockSlotWidthPx(): Int {
         val start =
@@ -524,7 +477,9 @@ class ClockOverlayService : Service() {
             systemUiClockPaddingEndPx()
 
         val paint =
-            android.graphics.Paint(clockViewOrPaint()).apply {
+            android.graphics.Paint(
+                clockViewOrPaint()
+            ).apply {
                 textSize =
                     systemUiClockSizePx().toFloat()
             }
@@ -535,17 +490,11 @@ class ClockOverlayService : Service() {
                     android.text.format.DateFormat
                         .is24HourFormat(this)
 
-                val pattern =
-                    if (is24) {
-                        "HH:mm"
-                    } else {
-                        "hh:mm"
-                    }
-
-                SimpleDateFormat(
-                    pattern,
-                    Locale.getDefault()
-                ).format(Date())
+                if (is24) {
+                    "23:59"
+                } else {
+                    "11:59"
+                }
             } catch (_: Throwable) {
                 "23:59"
             }
@@ -564,15 +513,14 @@ class ClockOverlayService : Service() {
         )
     }
 
-    private fun nativeClockTextWidthPx(): Int {
-        return (
+    private fun nativeClockTextWidthPx(): Int =
+        (
             nativeClockSlotWidthPx() -
                 systemUiClockPaddingStartPx() -
                 systemUiClockPaddingEndPx()
         ).coerceAtLeast(
-            dp(24f)
+            dp(20f)
         )
-    }
 
     private fun clockViewOrPaint():
         android.graphics.Paint {
@@ -619,6 +567,13 @@ class ClockOverlayService : Service() {
             )
             ?: dp(0f)
 
+    private fun systemUiPaddingTopPx(): Int =
+        systemUiResources()
+            ?.getDimensionPixelSizeByName(
+                "status_bar_padding_top"
+            )
+            ?: 0
+
     private fun statusBarSystemIconsHeightPx(): Int =
         systemUiResources()
             ?.getDimensionPixelSizeByName(
@@ -641,9 +596,7 @@ class ClockOverlayService : Service() {
                 )
                     .takeIf { it != 0 }
                     ?.let {
-                        resources.getDimensionPixelSize(
-                            it
-                        )
+                        resources.getDimensionPixelSize(it)
                     }
                 ?: dp(24f)
         ).coerceAtLeast(dp(20f))
@@ -665,9 +618,7 @@ class ClockOverlayService : Service() {
     }
 
     private fun refreshSystemUiAppearance() {
-        if (!::shell.isInitialized) {
-            return
-        }
+        if (!::shell.isInitialized) return
 
         val fallbackNight =
             (
