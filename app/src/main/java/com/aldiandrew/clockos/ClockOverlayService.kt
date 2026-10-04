@@ -103,6 +103,13 @@ class ClockOverlayService : Service() {
         try {
             shell = ShizukuShell(this)
 
+            // Hide the real SystemUI clock before the overlay is shown.
+            // This is the only stock Android command available to remove
+            // the native clock without root/Xposed.
+            shell.execute(
+                "cmd statusbar send-disable-flag clock"
+            )
+
             systemUiContext =
                 try {
                     createPackageContext(
@@ -208,7 +215,12 @@ class ClockOverlayService : Service() {
         }
 
         if (::shell.isInitialized) {
-            shell.unbind()
+            // Restore the native SystemUI clock when ClockOS stops.
+            shell.execute(
+                "cmd statusbar send-disable-flag none"
+            ) {
+                shell.unbind()
+            }
         }
 
         super.onDestroy()
