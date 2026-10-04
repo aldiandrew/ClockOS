@@ -43,7 +43,7 @@ class ClockOverlayService : Service() {
 
         private const val EXTRA_RELATIVE_SIZE = 0.70f
         private const val CLOCK_EDGE_MARGIN_DP = 4f
-        private const val CLOCK_VERTICAL_OFFSET_DP = -1f
+        private const val CLOCK_VERTICAL_OFFSET_DP = -2f
     }
 
     private lateinit var windowManager: WindowManager
