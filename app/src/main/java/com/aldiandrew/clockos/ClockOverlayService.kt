@@ -472,9 +472,7 @@ class ClockOverlayService : Service() {
         val builder =
             SpannableStringBuilder(timeText)
 
-        if (
-            !amPmStyle.equals(2)
-        ) {
+        if (amPmStyle != 2) {
             val amPmStart =
                 timeText.lastIndexOf(' ') + 1
 
@@ -896,9 +894,10 @@ class ClockOverlayService : Service() {
         val valueText =
             line.substringAfter('=')
                 .trim()
-                .substringBefore(
-                    Regex("[^0-9a-fA-FxX]")
-                )
+                .takeWhile {
+                    it.isDigit() ||
+                        it in "abcdefABCDEFxX"
+                }
 
         if (valueText.isBlank()) {
             if (
