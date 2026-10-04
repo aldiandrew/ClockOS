@@ -24,6 +24,11 @@ import java.util.Locale
 import java.util.regex.Pattern
 
 class ClockOverlayService : Service() {
+
+    companion object {
+        const val ACTION_SETTINGS_CHANGED =
+            "com.aldiandrew.clockos.ACTION_SETTINGS_CHANGED"
+    }
     private lateinit var windowManager: WindowManager
     private lateinit var clockView: TextView
     private lateinit var params: WindowManager.LayoutParams
@@ -54,6 +59,18 @@ class ClockOverlayService : Service() {
             refreshSystemUiAppearance()
             handler.postDelayed(this, 3000L)
         }
+    }
+
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int
+    ): Int {
+        if (intent?.action == ACTION_SETTINGS_CHANGED) {
+            updateClock()
+            refreshSystemUiAppearance()
+        }
+        return START_STICKY
     }
 
     override fun onCreate() {
@@ -135,6 +152,8 @@ class ClockOverlayService : Service() {
             stopSelf()
         }
     }
+
+    override fun onBind(intent: Intent?): android.os.IBinder? = null
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
