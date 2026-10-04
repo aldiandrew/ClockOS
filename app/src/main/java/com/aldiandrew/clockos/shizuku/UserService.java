@@ -57,7 +57,10 @@ public class UserService extends IUserService.Stub {
         try {
             Object statusBar = getStatusBarService();
 
-            Method method = statusBar.getClass().getMethod(
+            Class<?> statusBarInterface =
+                Class.forName("com.android.internal.statusbar.IStatusBarService");
+
+            Method method = statusBarInterface.getMethod(
                 "setIcon",
                 String.class,
                 String.class,
@@ -86,7 +89,10 @@ public class UserService extends IUserService.Stub {
         try {
             Object statusBar = getStatusBarService();
 
-            Method method = statusBar.getClass().getMethod(
+            Class<?> statusBarInterface =
+                Class.forName("com.android.internal.statusbar.IStatusBarService");
+
+            Method method = statusBarInterface.getMethod(
                 "removeIcon",
                 String.class
             );
