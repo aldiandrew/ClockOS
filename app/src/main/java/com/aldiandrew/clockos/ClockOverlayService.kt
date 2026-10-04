@@ -625,9 +625,15 @@ class ClockOverlayService : Service() {
                 centered.coerceAtLeast(0)
             )
 
+        val offsetPx =
+            (
+                CLOCK_VERTICAL_OFFSET_DP *
+                    resources.displayMetrics.density
+            ).toInt()
+
         return (
             base +
-                dp(CLOCK_VERTICAL_OFFSET_DP)
+                offsetPx
         ).coerceAtLeast(0)
     }
 
