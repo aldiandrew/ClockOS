@@ -7,13 +7,43 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.aldiandrew.clockos.ui.theme.ClockOSTheme
 import rikka.shizuku.Shizuku
+
+private val CLOCKOS_DATE_FORMATS =
+    listOf(
+        "dd/MM",
+        "dd/MM/yy",
+        "yyyy-MM-dd",
+        "dd-MM-yyyy",
+        "MMM dd",
+        "EEE",
+        "EEE dd",
+        "EEE dd/MM",
+        "EEE dd MMM",
+        "EEE MMM dd",
+        "EEEE dd/MM",
+        "EEEE MM/dd",
+        "CUSTOM"
+    )
+
+private val CLOCKOS_DATE_STYLES =
+    listOf(
+        "Normal",
+        "lowercase",
+        "UPPERCASE"
+    )
+
+private val CLOCKOS_AM_PM_STYLES =
+    listOf(
+        "Hidden",
+        "Normal",
+        "Small"
+    )
 
 class MainActivity : ComponentActivity() {
     private lateinit var shell: ShizukuShell
@@ -27,25 +57,35 @@ class MainActivity : ComponentActivity() {
             refreshShizukuState()
         }
 
-    private val binderListener = object : Shizuku.OnBinderReceivedListener {
-        override fun onBinderReceived() {
+    private val binderListener =
+        object : Shizuku.OnBinderReceivedListener {
+            override fun onBinderReceived() {
+                refreshShizukuState()
+            }
+        }
+
+    private val binderDeadListener =
+        Shizuku.OnBinderDeadListener {
             refreshShizukuState()
         }
-    }
 
-    private val binderDeadListener = Shizuku.OnBinderDeadListener {
-        refreshShizukuState()
-    }
-
-    override fun onCreate(savedInstanceState: Bundle?) {
+    override fun onCreate(
+        savedInstanceState: Bundle?
+    ) {
         super.onCreate(savedInstanceState)
 
         shell = ShizukuShell(this)
         prefs = ClockPrefs(this)
 
-        Shizuku.addRequestPermissionResultListener(permissionListener)
-        Shizuku.addBinderReceivedListener(binderListener)
-        Shizuku.addBinderDeadListener(binderDeadListener)
+        Shizuku.addRequestPermissionResultListener(
+            permissionListener
+        )
+        Shizuku.addBinderReceivedListener(
+            binderListener
+        )
+        Shizuku.addBinderDeadListener(
+            binderDeadListener
+        )
 
         refreshShizukuState()
 
@@ -55,9 +95,15 @@ class MainActivity : ComponentActivity() {
                     prefs = prefs,
                     shizukuReady = shizukuReady,
                     clockEnabled = clockEnabled,
-                    onRequestShizuku = { requestShizuku() },
-                    onStart = { applyClock(true) },
-                    onStop = { applyClock(false) },
+                    onRequestShizuku = {
+                        requestShizuku()
+                    },
+                    onStart = {
+                        applyClock(true)
+                    },
+                    onStop = {
+                        applyClock(false)
+                    },
                     onSettingsChanged = {
                         if (clockEnabled) {
                             sendSettingsChangedBroadcast()
@@ -74,14 +120,34 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        try { Shizuku.removeRequestPermissionResultListener(permissionListener) } catch (_: Throwable) {}
-        try { Shizuku.removeBinderReceivedListener(binderListener) } catch (_: Throwable) {}
-        try { Shizuku.removeBinderDeadListener(binderDeadListener) } catch (_: Throwable) {}
+        try {
+            Shizuku.removeRequestPermissionResultListener(
+                permissionListener
+            )
+        } catch (_: Throwable) {
+        }
+
+        try {
+            Shizuku.removeBinderReceivedListener(
+                binderListener
+            )
+        } catch (_: Throwable) {
+        }
+
+        try {
+            Shizuku.removeBinderDeadListener(
+                binderDeadListener
+            )
+        } catch (_: Throwable) {
+        }
+
         super.onDestroy()
     }
 
     private fun refreshShizukuState() {
-        shizukuReady = shell.isAvailable() && shell.hasPermission()
+        shizukuReady =
+            shell.isAvailable() &&
+                shell.hasPermission()
     }
 
     private fun requestShizuku() {
@@ -117,13 +183,16 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(
                 this,
                 "Could not update ClockOS: " +
-                    (t.message ?: t.javaClass.simpleName),
+                    (t.message
+                        ?: t.javaClass.simpleName),
                 Toast.LENGTH_SHORT
             ).show()
         }
     }
 
-    private fun applyClock(enable: Boolean) {
+    private fun applyClock(
+        enable: Boolean
+    ) {
         if (!shizukuReady) {
             Toast.makeText(
                 this,
@@ -140,6 +209,7 @@ class MainActivity : ComponentActivity() {
                     ClockOverlayService::class.java
                 )
             )
+
             clockEnabled = false
 
             Toast.makeText(
@@ -164,15 +234,17 @@ class MainActivity : ComponentActivity() {
                     return@runOnUiThread
                 }
 
-                // Keep the native SystemUI clock visible. Its real view must
-                // retain its measured width so the notification area remains
-                // correctly positioned. Older ClockOS builds disabled it, so
-                // clear that old flag before starting the replacement overlay.
+                // Restore any clock-disable flag left by an older ClockOS
+                // build. The current build intentionally keeps the native
+                // clock layout active and visually masks its glyphs.
                 shell.execute(
                     "cmd statusbar send-disable-flag none"
                 ) { restoreResult ->
                     runOnUiThread {
-                        if (!restoreResult.startsWith("exit=0")) {
+                        if (
+                            !restoreResult
+                                .startsWith("exit=0")
+                        ) {
                             Toast.makeText(
                                 this,
                                 restoreResult.take(300),
@@ -200,8 +272,10 @@ class MainActivity : ComponentActivity() {
                             Toast.makeText(
                                 this,
                                 "Could not start ClockOS: " +
-                                    (t.message
-                                        ?: t.javaClass.simpleName),
+                                    (
+                                        t.message
+                                            ?: t.javaClass.simpleName
+                                    ),
                                 Toast.LENGTH_LONG
                             ).show()
                         }
@@ -223,18 +297,43 @@ private fun ClockScreen(
     onStop: () -> Unit,
     onSettingsChanged: () -> Unit
 ) {
-    var settings by remember { mutableStateOf(prefs.load()) }
+    var settings by remember {
+        mutableStateOf(
+            prefs.load()
+        )
+    }
 
-    fun save(key: String, value: Any) {
-        prefs.set(key, value)
-        settings = prefs.load()
+    var customDateDialog by remember {
+        mutableStateOf(false)
+    }
+
+    var customDateInput by remember {
+        mutableStateOf(
+            settings.customDateFormat
+        )
+    }
+
+    fun save(
+        key: String,
+        value: Any
+    ) {
+        prefs.set(
+            key,
+            value
+        )
+
+        settings =
+            prefs.load()
+
         onSettingsChanged()
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("ClockOS") }
+                title = {
+                    Text("ClockOS")
+                }
             )
         }
     ) { padding ->
@@ -243,9 +342,12 @@ private fun ClockScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement =
+                Arrangement.spacedBy(10.dp)
         ) {
-            Spacer(Modifier.height(8.dp))
+            Spacer(
+                Modifier.height(8.dp)
+            )
 
             Text(
                 if (shizukuReady) {
@@ -261,7 +363,8 @@ private fun ClockScreen(
                 } else {
                     "ClockOS: stopped"
                 },
-                style = MaterialTheme.typography.bodyMedium
+                style =
+                    MaterialTheme.typography.bodyMedium
             )
 
             if (!shizukuReady) {
@@ -273,53 +376,152 @@ private fun ClockScreen(
             }
 
             Text(
-                "ClockOS follows the native SystemUI clock area, font tint, " +
-                    "and status-bar alignment. Notifications remain managed by SystemUI.",
-                style = MaterialTheme.typography.bodySmall
+                "ClockOS uses the native SystemUI clock slot, " +
+                    "font family, and status-bar tint. " +
+                    "The native glyph is visually masked so " +
+                    "notifications keep their original layout.",
+                style =
+                    MaterialTheme.typography.bodySmall
             )
 
             SettingSwitch(
-                "24-hour",
-                settings.format24
+                label = "24-hour",
+                checked = settings.format24
             ) {
-                save("format24", it)
+                save(
+                    "format24",
+                    it
+                )
             }
 
             SettingSwitch(
-                "Seconds",
-                settings.showSeconds
+                label = "Seconds",
+                checked = settings.showSeconds
             ) {
-                save("showSeconds", it)
+                save(
+                    "showSeconds",
+                    it
+                )
             }
 
             SettingSwitch(
-                "Date",
-                settings.showDate
+                label = "Date",
+                checked = settings.showDate
             ) {
-                save("showDate", it)
+                save(
+                    "showDate",
+                    it
+                )
+            }
+
+            if (settings.showDate) {
+                SettingDropdown(
+                    label = "Date format",
+                    selected =
+                        dateFormatLabel(
+                            settings
+                        ),
+                    options =
+                        CLOCKOS_DATE_FORMATS.map {
+                            if (it == "CUSTOM") {
+                                "Custom"
+                            } else {
+                                it
+                            }
+                        },
+                    enabled = true
+                ) { selected ->
+                    val raw =
+                        if (selected == "Custom") {
+                            "CUSTOM"
+                        } else {
+                            selected
+                        }
+
+                    if (raw == "CUSTOM") {
+                        customDateInput =
+                            settings.customDateFormat
+                        customDateDialog = true
+                    } else {
+                        save(
+                            "dateFormat",
+                            raw
+                        )
+                    }
+                }
+
+                SettingDropdown(
+                    label = "Date style",
+                    selected =
+                        CLOCKOS_DATE_STYLES[
+                            settings.dateStyle
+                        ],
+                    options =
+                        CLOCKOS_DATE_STYLES,
+                    enabled = true
+                ) { selected ->
+                    save(
+                        "dateStyle",
+                        CLOCKOS_DATE_STYLES
+                            .indexOf(selected)
+                            .coerceAtLeast(0)
+                    )
+                }
             }
 
             SettingSwitch(
-                "Day",
-                settings.showDay
+                label = "Day",
+                checked = settings.showDay
             ) {
-                save("showDay", it)
+                save(
+                    "showDay",
+                    it
+                )
+            }
+
+            if (!settings.format24) {
+                SettingDropdown(
+                    label = "AM/PM",
+                    selected =
+                        CLOCKOS_AM_PM_STYLES[
+                            settings.amPmStyle
+                        ],
+                    options =
+                        CLOCKOS_AM_PM_STYLES,
+                    enabled = true
+                ) { selected ->
+                    save(
+                        "amPmStyle",
+                        CLOCKOS_AM_PM_STYLES
+                            .indexOf(selected)
+                            .coerceAtLeast(0)
+                    )
+                }
             }
 
             Text(
-                "Size: %.0fsp".format(settings.sizeSp)
+                "Size: %.0fsp".format(
+                    settings.sizeSp
+                )
             )
 
             Slider(
                 value = settings.sizeSp,
                 onValueChange = {
-                    settings = settings.copy(
-                        sizeSp = it
+                    settings =
+                        settings.copy(
+                            sizeSp = it
+                        )
+
+                    prefs.set(
+                        "sizeSp",
+                        it
                     )
-                    prefs.set("sizeSp", it)
                 },
                 onValueChangeFinished = {
-                    settings = prefs.load()
+                    settings =
+                        prefs.load()
+
                     onSettingsChanged()
                 },
                 valueRange = 10f..22f
@@ -327,7 +529,8 @@ private fun ClockScreen(
 
             Button(
                 onClick = onStart,
-                modifier = Modifier.fillMaxWidth(),
+                modifier =
+                    Modifier.fillMaxWidth(),
                 enabled = shizukuReady
             ) {
                 Text("Enable ClockOS")
@@ -335,12 +538,155 @@ private fun ClockScreen(
 
             OutlinedButton(
                 onClick = onStop,
-                modifier = Modifier.fillMaxWidth(),
+                modifier =
+                    Modifier.fillMaxWidth(),
                 enabled = shizukuReady
             ) {
                 Text("Restore Native Clock")
             }
         }
+    }
+
+    if (customDateDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                customDateDialog = false
+            },
+            title = {
+                Text("Custom date format")
+            },
+            text = {
+                Column(
+                    verticalArrangement =
+                        Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Use SimpleDateFormat patterns, " +
+                            "for example EEE dd/MM."
+                    )
+
+                    TextField(
+                        value = customDateInput,
+                        onValueChange = {
+                            customDateInput = it
+                        },
+                        singleLine = true,
+                        modifier =
+                            Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val value =
+                            customDateInput.trim()
+
+                        if (value.isNotEmpty()) {
+                            prefs.set(
+                                "dateFormat",
+                                "CUSTOM"
+                            )
+                            prefs.set(
+                                "customDateFormat",
+                                value
+                            )
+
+                            settings =
+                                prefs.load()
+
+                            onSettingsChanged()
+                        }
+
+                        customDateDialog = false
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        customDateDialog = false
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun SettingDropdown(
+    label: String,
+    selected: String,
+    options: List<String>,
+    enabled: Boolean,
+    onSelected: (String) -> Unit
+) {
+    var expanded by remember {
+        mutableStateOf(false)
+    }
+
+    Box(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        OutlinedButton(
+            onClick = {
+                expanded = true
+            },
+            enabled = enabled,
+            modifier =
+                Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier =
+                    Modifier.fillMaxWidth(),
+                horizontalAlignment =
+                    Alignment.Start
+            ) {
+                Text(
+                    label,
+                    style =
+                        MaterialTheme.typography.labelSmall
+                )
+
+                Text(selected)
+            }
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = {
+                expanded = false
+            }
+        ) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = {
+                        Text(option)
+                    },
+                    onClick = {
+                        expanded = false
+                        onSelected(option)
+                    }
+                )
+            }
+        }
+    }
+}
+
+private fun dateFormatLabel(
+    settings: ClockSettings
+): String {
+    return if (
+        settings.dateFormat == "CUSTOM"
+    ) {
+        settings.customDateFormat
+            .ifBlank { "Custom" }
+    } else {
+        settings.dateFormat
     }
 }
 
@@ -351,14 +697,19 @@ private fun SettingSwitch(
     onCheckedChange: (Boolean) -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        modifier =
+            Modifier.fillMaxWidth(),
+        horizontalArrangement =
+            Arrangement.SpaceBetween,
+        verticalAlignment =
+            Alignment.CenterVertically
     ) {
         Text(label)
+
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange
+            onCheckedChange =
+                onCheckedChange
         )
     }
 }
