@@ -688,6 +688,21 @@ class ClockOverlayService : Service() {
                 View.MeasureSpec.EXACTLY
             )
 
+        // WindowManager assigns WindowManager.LayoutParams to the
+        // top-level overlay itself. Re-assert the child params before
+        // measuring so LinearLayout never sees the wrong LayoutParams type.
+        clockView.layoutParams =
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.MATCH_PARENT
+            )
+
+        notificationIconView.layoutParams =
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.MATCH_PARENT
+            )
+
         statusBarContentView.measure(
             widthSpec,
             heightSpec
