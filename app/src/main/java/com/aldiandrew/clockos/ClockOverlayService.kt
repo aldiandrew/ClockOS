@@ -64,10 +64,13 @@ class ClockOverlayService : Service() {
 
     private var lastRendered = ""
     private var lastSizeSp = Float.NaN
+    private var nativeNotificationIconsHidden = false
+    private var notificationIconFlagSyncPending = false
 
     private val notificationStoreListener: () -> Unit = {
         handler.post {
             renderNotificationIcons()
+            syncNativeNotificationIcons()
         }
     }
 
@@ -83,6 +86,12 @@ class ClockOverlayService : Service() {
 
     private val appearanceTick = object : Runnable {
         override fun run() {
+            if (!hasClockNotificationAccess(this@ClockOverlayService)) {
+                stopSelf()
+                return
+            }
+
+            syncNativeNotificationIcons()
             refreshSystemUiAppearance()
             handler.postDelayed(this, 3000L)
         }
@@ -96,6 +105,7 @@ class ClockOverlayService : Service() {
         if (intent?.action == ACTION_SETTINGS_CHANGED) {
             lastRendered = ""
             updateClock()
+            syncNativeNotificationIcons()
             refreshSystemUiAppearance()
         }
 
@@ -116,9 +126,16 @@ class ClockOverlayService : Service() {
         try {
             shell = ShizukuShell(this)
 
+            if (!hasClockNotificationAccess(this)) {
+                stopSelf()
+                return
+            }
+
             shell.execute(
                 "cmd statusbar send-disable-flag clock"
             ) { }
+
+            syncNativeNotificationIcons()
 
             systemUiContext =
                 try {
@@ -273,6 +290,9 @@ class ClockOverlayService : Service() {
             }
         } catch (_: Throwable) {
         }
+
+        nativeNotificationIconsHidden = false
+        notificationIconFlagSyncPending = false
 
         if (::shell.isInitialized) {
             shell.execute(
@@ -707,6 +727,50 @@ class ClockOverlayService : Service() {
             leftSafeInset
         } else {
             width
+        }
+    }
+
+    private fun syncNativeNotificationIcons() {
+        if (!::shell.isInitialized) return
+
+        val shouldHide =
+            hasClockNotificationAccess(this) &&
+                NotificationIconStore.isListenerConnected()
+
+        if (
+            shouldHide ==
+                nativeNotificationIconsHidden ||
+            notificationIconFlagSyncPending
+        ) {
+            return
+        }
+
+        notificationIconFlagSyncPending = true
+
+        val command =
+            if (shouldHide) {
+                "cmd statusbar send-disable-flag " +
+                    "clock notification-icons"
+            } else {
+                "cmd statusbar send-disable-flag clock"
+            }
+
+        shell.execute(command) { result ->
+            handler.post {
+                notificationIconFlagSyncPending = false
+
+                if (result.startsWith("exit=0")) {
+                    nativeNotificationIconsHidden =
+                        shouldHide
+
+                    if (
+                        !shouldHide &&
+                        !hasClockNotificationAccess(this)
+                    ) {
+                        stopSelf()
+                    }
+                }
+            }
         }
     }
 
