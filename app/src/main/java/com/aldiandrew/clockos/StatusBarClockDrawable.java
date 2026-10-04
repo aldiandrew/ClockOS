@@ -102,11 +102,6 @@ public final class StatusBarClockDrawable extends Drawable {
     }
 
     @Override
-    public ColorStateList getTintList() {
-        return tintList;
-    }
-
-    @Override
     public void setTint(int color) {
         tintList = ColorStateList.valueOf(color);
         colorFilter = new PorterDuffColorFilter(
@@ -196,12 +191,6 @@ public final class StatusBarClockDrawable extends Drawable {
     @Override
     public int getOpacity() {
         return android.graphics.PixelFormat.TRANSLUCENT;
-    }
-
-    private android.content.res.Resources getResourcesSafe() {
-        return getBounds().isEmpty()
-                ? android.content.res.Resources.getSystem()
-                : android.content.res.Resources.getSystem();
     }
 
     private android.util.DisplayMetrics getDensity() {
