@@ -21,6 +21,16 @@
         </activity>
 
         <service
+            android:name=".ClockNotificationListener"
+            android:exported="false"
+            android:label="ClockOS notification icons"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <service
             android:name=".ClockOverlayService"
             android:exported="false"
             android:foregroundServiceType="specialUse"
