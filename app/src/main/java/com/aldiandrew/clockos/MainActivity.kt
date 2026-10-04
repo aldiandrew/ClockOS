@@ -13,26 +13,82 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.aldiandrew.clockos.ui.theme.ClockOSTheme
+import rikka.shizuku.Shizuku
 
 class MainActivity : ComponentActivity() {
     private lateinit var shell: ShizukuShell
     private lateinit var prefs: ClockPrefs
 
+    private var shizukuReady by mutableStateOf(false)
+
+    private val permissionListener =
+        Shizuku.OnRequestPermissionResultListener { _, _ ->
+            refreshShizukuState()
+        }
+
+    private val binderListener = object : Shizuku.OnBinderReceivedListener {
+        override fun onBinderReceived() {
+            refreshShizukuState()
+        }
+    }
+
+    private val binderDeadListener = Shizuku.OnBinderDeadListener {
+        refreshShizukuState()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         shell = ShizukuShell(this)
         prefs = ClockPrefs(this)
+
+        Shizuku.addRequestPermissionResultListener(permissionListener)
+        Shizuku.addBinderReceivedListener(binderListener)
+        Shizuku.addBinderDeadListener(binderDeadListener)
+
+        refreshShizukuState()
+
         setContent {
             ClockOSTheme {
                 ClockScreen(
                     prefs = prefs,
-                    shizukuReady = shell.isAvailable() && shell.hasPermission(),
-                    onRequestShizuku = { shell.requestPermission() },
+                    shizukuReady = shizukuReady,
+                    onRequestShizuku = { requestShizuku() },
                     onStart = { applyClock(true) },
                     onStop = { applyClock(false) }
                 )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshShizukuState()
+    }
+
+    override fun onDestroy() {
+        try { Shizuku.removeRequestPermissionResultListener(permissionListener) } catch (_: Throwable) {}
+        try { Shizuku.removeBinderReceivedListener(binderListener) } catch (_: Throwable) {}
+        try { Shizuku.removeBinderDeadListener(binderDeadListener) } catch (_: Throwable) {}
+        super.onDestroy()
+    }
+
+    private fun refreshShizukuState() {
+        shizukuReady = shell.isAvailable() && shell.hasPermission()
+    }
+
+    private fun requestShizuku() {
+        if (!shell.isAvailable()) {
+            Toast.makeText(this, "Shizuku is not running", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (shell.hasPermission()) {
+            refreshShizukuState()
+            return
+        }
+
+        shell.requestPermission()
     }
 
     private fun applyClock(enable: Boolean) {
@@ -50,8 +106,6 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // Duos-style approach: Shizuku changes the AppOp directly.
-        // The user does not need to open the "Display over other apps" page.
         shell.execute(
             "appops set $packageName android:system_alert_window allow"
         ) { appOpsResult ->
@@ -59,7 +113,7 @@ class MainActivity : ComponentActivity() {
                 runOnUiThread {
                     Toast.makeText(
                         this,
-                        "Shizuku could not enable the status-bar window permission:\n" +
+                        "Shizuku could not enable ClockOS window:\n" +
                             appOpsResult.take(250),
                         Toast.LENGTH_LONG
                     ).show()
@@ -116,12 +170,13 @@ private fun ClockScreen(
             Text(if (shizukuReady) "Shizuku: ready" else "Shizuku: not ready")
 
             if (!shizukuReady) {
-                Button(onClick = onRequestShizuku) { Text("Connect Shizuku") }
+                Button(onClick = onRequestShizuku) {
+                    Text("Connect Shizuku")
+                }
             }
 
             Text(
-                "ClockOS uses Shizuku to enable its status-bar window. " +
-                    "No manual Display over other apps setup is required.",
+                "ClockOS uses Shizuku. No manual Display over other apps setup is required.",
                 style = MaterialTheme.typography.bodySmall
             )
 
