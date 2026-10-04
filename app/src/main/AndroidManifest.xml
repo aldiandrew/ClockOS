@@ -30,10 +30,6 @@
                 android:value="Persistent custom status-bar clock overlay" />
         </service>
 
-        <service
-            android:name=".shizuku.UserService"
-            android:exported="false" />
-
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku"
