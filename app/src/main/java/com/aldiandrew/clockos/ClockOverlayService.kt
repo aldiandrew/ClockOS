@@ -169,7 +169,10 @@ class ClockOverlayService : Service() {
                 createSystemUiStyledClock()
 
             notificationIconView =
-                NotificationIconRow(systemUiContext)
+                NotificationIconRow(
+                    context = systemUiContext,
+                    slotSizePx = systemUiNotificationIconSlotSizePx()
+                )
 
             statusBarContentView =
                 StatusBarClusterView(systemUiContext).apply {
@@ -815,6 +818,17 @@ class ClockOverlayService : Service() {
         }
     }
 
+    private fun systemUiNotificationIconSlotSizePx(): Int =
+        systemUiResources()
+            ?.getDimensionPixelSizeByName(
+                "status_bar_icon_size_sp"
+            )
+            ?: systemUiResources()
+                ?.getDimensionPixelSizeByName(
+                    "status_bar_icon_size"
+                )
+            ?: dp(15f)
+
     private fun loadNotificationIcon(
         entry: ClockNotificationEntry
     ): Drawable? {
@@ -1268,18 +1282,13 @@ private class StatusBarClusterView(
 }
 
 private class NotificationIconRow(
-    context: Context
+    context: Context,
+    private val slotSizePx: Int
 ) : ViewGroup(context) {
 
-    private val horizontalPaddingPx =
-        (
-            resources.displayMetrics.density * 2f
-        ).toInt().coerceAtLeast(1)
+    private val horizontalPaddingPx = 0
 
-    private val iconSizePx =
-        (
-            resources.displayMetrics.density * 15f
-        ).toInt().coerceAtLeast(1)
+    private val iconScale = 0.78f
 
     fun desiredWidthPx(): Int =
         childCount *
@@ -1301,7 +1310,7 @@ private class NotificationIconRow(
             val child = getChildAt(index)
             child.measure(
                 MeasureSpec.makeMeasureSpec(
-                    iconSizePx,
+                    slotSizePx,
                     MeasureSpec.EXACTLY
                 ),
                 MeasureSpec.makeMeasureSpec(
