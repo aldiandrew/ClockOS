@@ -240,41 +240,19 @@ class MainActivity : ComponentActivity() {
                     return@runOnUiThread
                 }
 
-                // Clear the old DISABLE_CLOCK state left by older
-                // ClockOS builds before enabling the transparent resource
-                // overlay. This restores the native view's layout slot.
+                // Disable the native SystemUI clock before starting the
+                // replacement overlay. The service restores it on shutdown.
                 shell.execute(
-                    "cmd statusbar send-disable-flag none"
-                ) { restoreResult ->
+                    "cmd statusbar send-disable-flag clock"
+                ) { disableResult ->
                     runOnUiThread {
                         if (
-                            !restoreResult
+                            !disableResult
                                 .startsWith("exit=0")
                         ) {
                             Toast.makeText(
                                 this,
-                                restoreResult.take(250),
-                                Toast.LENGTH_LONG
-                            ).show()
-                            return@runOnUiThread
-                        }
-
-                        // Keep the native clock view in SystemUI so its measured
-                        // width still reserves the notification area. A Shizuku
-                        // FRRO makes the native clock color transparent instead
-                        // of removing the view from the layout.
-                        shell.execute(
-                            "clockos:overlay:enable"
-                        ) { overlayResult ->
-                    runOnUiThread {
-                        if (
-                            !overlayResult
-                                .startsWith("exit=0")
-                        ) {
-                            Toast.makeText(
-                                this,
-                                "SystemUI overlay failed: " +
-                                    overlayResult.take(250),
+                                disableResult.take(250),
                                 Toast.LENGTH_LONG
                             ).show()
                             return@runOnUiThread
@@ -297,7 +275,7 @@ class MainActivity : ComponentActivity() {
                             ).show()
                         } catch (t: Throwable) {
                             shell.execute(
-                                "clockos:overlay:disable"
+                                "cmd statusbar send-disable-flag none"
                             ) { }
 
                             Toast.makeText(
@@ -311,11 +289,7 @@ class MainActivity : ComponentActivity() {
                             ).show()
                         }
                     }
-                        }
-                    }
                 }
-            }
-        }
     }
 }
 
