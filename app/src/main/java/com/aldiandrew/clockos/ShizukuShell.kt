@@ -22,7 +22,8 @@ class ShizukuShell(private val context: Context) {
     )
         .daemon(false)
         .tag("clockos-shell")
-        .version(1)
+        .processNameSuffix("clockos_shell")
+        .version(2)
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
