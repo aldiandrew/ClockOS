@@ -1,6 +1,5 @@
 package com.aldiandrew.clockos
 
-import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 
@@ -107,15 +106,6 @@ class ClockNotificationListener : NotificationListenerService() {
 
         val notification = sbn.notification
         if (notification.smallIcon == null) return false
-
-        // SystemUI normally renders group summaries as part of the group,
-        // rather than as an independent status-bar icon.
-        if (
-            notification.flags and
-                Notification.FLAG_GROUP_SUMMARY != 0
-        ) {
-            return false
-        }
 
         return true
     }
