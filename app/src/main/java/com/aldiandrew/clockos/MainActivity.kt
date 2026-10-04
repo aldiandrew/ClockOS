@@ -150,12 +150,15 @@ class MainActivity : ComponentActivity() {
 
     private fun applyClock(enable: Boolean) {
         if (!shizukuReady) {
-            Toast.makeText(this, "Shizuku is not ready", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                this,
+                "Shizuku is not ready",
+                Toast.LENGTH_SHORT
+            ).show()
             return
         }
 
         if (!enable) {
-            // Use the direct Binder API so removal is synchronous and verifiable.
             shell.execute("true") {
                 shell.removeStatusBarIcon("clockos") { removeResult ->
                     if (removeResult != "ok") {
@@ -169,21 +172,24 @@ class MainActivity : ComponentActivity() {
                         return@removeStatusBarIcon
                     }
 
-                    shell.execute("cmd statusbar send-disable-flag none") { restoreResult ->
-                    runOnUiThread {
-                        if (restoreResult.startsWith("exit=0")) {
-                            clockEnabled = false
-                            Toast.makeText(
-                                this,
-                                "Native clock restored",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        } else {
-                            Toast.makeText(
-                                this,
-                                restoreResult.take(300),
-                                Toast.LENGTH_LONG
-                            ).show()
+                    shell.execute(
+                        "cmd statusbar send-disable-flag none"
+                    ) { restoreResult ->
+                        runOnUiThread {
+                            if (restoreResult.startsWith("exit=0")) {
+                                clockEnabled = false
+                                Toast.makeText(
+                                    this,
+                                    "Native clock restored",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            } else {
+                                Toast.makeText(
+                                    this,
+                                    restoreResult.take(300),
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
                         }
                     }
                 }
@@ -203,7 +209,9 @@ class MainActivity : ComponentActivity() {
                 return@setSystemUiClock
             }
 
-            shell.execute("cmd statusbar send-disable-flag clock") { clockResult ->
+            shell.execute(
+                "cmd statusbar send-disable-flag clock"
+            ) { clockResult ->
                 runOnUiThread {
                     if (clockResult.startsWith("exit=0")) {
                         clockEnabled = true
