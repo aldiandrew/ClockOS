@@ -8,9 +8,6 @@ data class ClockSettings(
     val showDate: Boolean = false,
     val showDay: Boolean = false,
     val sizeSp: Float = 14f,
-    val position: String = "center",
-    val colorMode: String = "system",
-    val customColor: Int = 0xFFFFFFFF.toInt(),
     val weight: Int = 400
 )
 
@@ -22,10 +19,7 @@ class ClockPrefs(context: Context) {
         showSeconds = prefs.getBoolean("showSeconds", false),
         showDate = prefs.getBoolean("showDate", false),
         showDay = prefs.getBoolean("showDay", false),
-        sizeSp = prefs.getFloat("sizeSp", 14f),
-        position = prefs.getString("position", "center") ?: "center",
-        colorMode = prefs.getString("colorMode", "system") ?: "system",
-        customColor = prefs.getInt("customColor", 0xFFFFFFFF.toInt()),
+        sizeSp = prefs.getFloat("sizeSp", 14f).coerceIn(10f, 22f),
         weight = prefs.getInt("weight", 400)
     )
 
