@@ -51,7 +51,7 @@ class ClockOverlayService : Service() {
     private lateinit var windowManager: WindowManager
     private lateinit var statusBarContentView: StatusBarClusterView
     private lateinit var clockView: TextView
-    private lateinit var notificationIconView: NotificationIconRow
+    private lateinit var notificationIconView: SakuraNotificationIconContainer
     private lateinit var params: WindowManager.LayoutParams
     private lateinit var shell: ShizukuShell
     private lateinit var systemUiContext: Context
@@ -171,9 +171,12 @@ class ClockOverlayService : Service() {
                 createSystemUiStyledClock()
 
             notificationIconView =
-                NotificationIconRow(
+                SakuraNotificationIconContainer(
                     context = systemUiContext,
-                    slotSizePx = systemUiNotificationIconSlotSizePx()
+                    density = systemUiContext.resources.displayMetrics.density,
+                    slotSizePx = systemUiNotificationIconSlotSizePx(),
+                    iconSpacingPx = systemUiNotificationIconSpacingPx(),
+                    desiredIconHeightPx = systemUiNotificationIconDesiredHeightPx()
                 )
 
             statusBarContentView =
@@ -796,49 +799,27 @@ class ClockOverlayService : Service() {
             return
         }
 
-        notificationIconView.removeAllViews()
-
         val entries =
             NotificationIconStore.snapshot()
 
-        if (entries.isEmpty()) {
-            updatePosition(
-                statusBarContentView,
-                statusBarContentView.rootWindowInsets
-            )
-            return
-        }
+        val tint =
+            if (lastColor != Int.MIN_VALUE) {
+                lastColor
+            } else {
+                Color.WHITE
+            }
 
-        entries.forEach { entry ->
-            val drawable =
-                loadNotificationIcon(entry)
-                    ?: return@forEach
-
-            drawable.mutate()
-
-            val tint =
-                if (lastColor != Int.MIN_VALUE) {
-                    lastColor
-                } else {
-                    Color.WHITE
+        val icons =
+            entries.mapNotNull { entry ->
+                loadNotificationIcon(entry)?.let {
+                    entry.key to it
                 }
+            }
 
-            drawable.setTint(tint)
-
-            val icon =
-                ImageView(systemUiContext).apply {
-                    setImageDrawable(drawable)
-                    scaleType =
-                        ImageView.ScaleType.CENTER_INSIDE
-                    setColorFilter(tint, android.graphics.PorterDuff.Mode.SRC_IN)
-                    importantForAccessibility =
-                        View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                }
-
-            notificationIconView.addView(
-                icon
-            )
-        }
+        notificationIconView.setIcons(
+            icons,
+            tint
+        )
 
         statusBarContentView.requestLayout()
         statusBarContentView.post {
@@ -858,6 +839,20 @@ class ClockOverlayService : Service() {
                 ?.getDimensionPixelSizeByName(
                     "status_bar_icon_size"
                 )
+            ?: dp(15f)
+
+    private fun systemUiNotificationIconSpacingPx(): Int =
+        systemUiResources()
+            ?.getDimensionPixelSizeByName(
+                "status_bar_system_icon_spacing"
+            )
+            ?: 0
+
+    private fun systemUiNotificationIconDesiredHeightPx(): Int =
+        systemUiResources()
+            ?.getDimensionPixelSizeByName(
+                "status_bar_icon_size"
+            )
             ?: dp(15f)
 
     private fun loadNotificationIcon(
@@ -956,15 +951,23 @@ class ClockOverlayService : Service() {
     private fun systemUiClockPaddingStartPx(): Int =
         systemUiResources()
             ?.getDimensionPixelSizeByName(
-                "status_bar_left_clock_starting_padding"
+                "status_bar_clock_starting_padding"
             )
+            ?: systemUiResources()
+                ?.getDimensionPixelSizeByName(
+                    "status_bar_left_clock_starting_padding"
+                )
             ?: 0
 
     private fun systemUiClockPaddingEndPx(): Int =
         systemUiResources()
             ?.getDimensionPixelSizeByName(
-                "status_bar_left_clock_end_padding"
+                "status_bar_clock_end_padding"
             )
+            ?: systemUiResources()
+                ?.getDimensionPixelSizeByName(
+                    "status_bar_left_clock_end_padding"
+                )
             ?: dp(2f)
 
     private fun systemUiPaddingStartPx(): Int =
