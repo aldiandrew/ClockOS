@@ -39,10 +39,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.offset
 import com.aldiandrew.clockos.ui.theme.ClockOSTheme
 import rikka.shizuku.Shizuku
 
@@ -793,7 +793,12 @@ private fun ClockPreview(
             ) {
                 Text(
                     text = previewText,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .offset(
+                            x = settings.horizontalPositionDp.dp,
+                            y = settings.verticalPositionDp.dp
+                        ),
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = settings.sizeSp.coerceIn(10f, 22f).sp,
                     maxLines = 1,
