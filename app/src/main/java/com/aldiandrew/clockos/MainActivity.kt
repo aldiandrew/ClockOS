@@ -214,7 +214,7 @@ class MainActivity : ComponentActivity() {
             // this restoration from onDestroy as a second safety net.
             shell.execute(
                 "cmd statusbar send-disable-flag none"
-            )
+            ) { }
 
             clockEnabled = false
 
@@ -279,7 +279,7 @@ class MainActivity : ComponentActivity() {
                             // replacement service could not be started.
                             shell.execute(
                                 "cmd statusbar send-disable-flag none"
-                            )
+                            ) { }
 
                             Toast.makeText(
                                 this,
