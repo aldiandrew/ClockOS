@@ -136,6 +136,21 @@ class ClockOverlayService : Service() {
 
             windowManager.addView(clockView, params)
 
+            // Hide only SystemUI's native clock after our replacement view
+            // is successfully attached. The clock disable flag does not
+            // disable notification or system-icon groups.
+            shell.execute("cmd statusbar send-disable-flag clock") { result ->
+                if (!result.startsWith("exit=0")) {
+                    handler.post {
+                        try {
+                            windowManager.removeViewImmediate(clockView)
+                        } catch (_: Throwable) {
+                        }
+                        stopSelf()
+                    }
+                }
+            }
+
             clockView.setOnApplyWindowInsetsListener { view, insets ->
                 updatePosition(view, insets)
                 insets
@@ -154,6 +169,14 @@ class ClockOverlayService : Service() {
             handler.post(tick)
             handler.postDelayed(appearanceTick, 500L)
         } catch (_: Throwable) {
+            // Never leave SystemUI with its clock disabled if the overlay
+            // could not be created.
+            try {
+                if (::shell.isInitialized) {
+                    shell.execute("cmd statusbar send-disable-flag none") {}
+                }
+            } catch (_: Throwable) {
+            }
             stopSelf()
         }
     }
@@ -170,7 +193,12 @@ class ClockOverlayService : Service() {
         } catch (_: Throwable) {
         }
 
+        // Restore SystemUI's native clock whenever ClockOS stops.
         if (::shell.isInitialized) {
+            try {
+                shell.execute("cmd statusbar send-disable-flag none") {}
+            } catch (_: Throwable) {
+            }
             shell.unbind()
         }
 
@@ -203,6 +231,8 @@ class ClockOverlayService : Service() {
         ).format(Date())
 
         clockView.text = text
+        clockView.alpha = 1f
+        clockView.textScaleX = 1f
 
         applyTextSizing(settings.sizeSp)
         updatePosition(
@@ -212,38 +242,37 @@ class ClockOverlayService : Service() {
     }
 
     private fun applyTextSizing(requestedSp: Float) {
-        val maxWidth = (
-            clockAreaWidthPx() -
-                systemUiClockPaddingStartPx() -
-                systemUiClockPaddingEndPx() -
-                dp(2f)
-        ).coerceAtLeast(dp(24f))
-
-        var size = requestedSp.coerceIn(10f, 22f)
+        val paddingStart = systemUiClockPaddingStartPx()
+        val paddingEnd = systemUiClockPaddingEndPx()
         val metrics = clockView.paint
 
-        while (size > 8f) {
-            clockView.textSize = size
-            if (metrics.measureText(clockView.text.toString()) <= maxWidth) {
-                break
-            }
-            size -= 0.5f
-        }
+        // Measure the actual custom clock string instead of the native
+        // HH:mm sample. This prevents seconds/date/day from being clipped.
+        clockView.textSize = requestedSp.coerceIn(10f, 22f)
 
-        val measured = metrics.measureText(clockView.text.toString())
-        clockView.textScaleX =
-            if (measured > 0f && measured > maxWidth) {
-                maxWidth / measured
-            } else {
-                1f
-            }
+        val measured = metrics.measureText(
+            clockView.text.toString()
+        ).coerceAtLeast(1f)
+
+        val targetWidth = (
+            paddingStart +
+                measured +
+                paddingEnd +
+                dp(2f)
+            ).toInt().coerceAtLeast(dp(40f))
+
+        clockView.textScaleX = 1f
 
         clockView.setPadding(
-            systemUiClockPaddingStartPx(),
+            paddingStart,
             0,
-            systemUiClockPaddingEndPx(),
+            paddingEnd,
             0
         )
+
+        if (::params.isInitialized) {
+            params.width = targetWidth
+        }
     }
 
     private fun updatePosition(
@@ -278,7 +307,7 @@ class ClockOverlayService : Service() {
             cutoutLeft
         ).coerceAtLeast(0)
 
-        val targetWidth = clockAreaWidthPx()
+        val targetWidth = customClockWidthPx()
         val targetHeight = statusBarHeightPx()
 
         if (
@@ -305,6 +334,25 @@ class ClockOverlayService : Service() {
             lastHeight = targetHeight
         } catch (_: Throwable) {
         }
+    }
+
+    private fun customClockWidthPx(): Int {
+        if (!::clockView.isInitialized) {
+            return clockAreaWidthPx()
+        }
+
+        val paddingStart = systemUiClockPaddingStartPx()
+        val paddingEnd = systemUiClockPaddingEndPx()
+        val measured = clockView.paint.measureText(
+            clockView.text.toString()
+        ).toInt()
+
+        return (
+            paddingStart +
+                measured +
+                paddingEnd +
+                dp(2f)
+            ).coerceAtLeast(dp(40f))
     }
 
     private fun clockAreaWidthPx(): Int {
