@@ -9,8 +9,7 @@ data class ClockSettings(
     val customDateFormat: String = "",
     val dateStyle: Int = 0,
     val amPmStyle: Int = 2,
-    val sizeSp: Float = 14f,
-    val weight: Int = 500
+    val sizeSp: Float = 14f
 )
 
 class ClockPrefs(context: Context) {
@@ -32,8 +31,7 @@ class ClockPrefs(context: Context) {
         amPmStyle = prefs.getInt("amPmStyle", 2)
             .coerceIn(0, 2),
         sizeSp = prefs.getFloat("sizeSp", 14f)
-            .coerceIn(10f, 22f),
-        weight = prefs.getInt("weight", 500)
+            .coerceIn(10f, 22f)
     )
 
     fun set(
