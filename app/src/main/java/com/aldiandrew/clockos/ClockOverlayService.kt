@@ -1263,17 +1263,55 @@ private class StatusBarClusterView(
             return
         }
 
-        var totalWidth = 0
+        val availableWidth =
+            when (MeasureSpec.getMode(widthMeasureSpec)) {
+                MeasureSpec.UNSPECIFIED ->
+                    Int.MAX_VALUE
+                else ->
+                    MeasureSpec.getSize(widthMeasureSpec)
+            }
 
-        for (index in 0 until childCount) {
-            val child = getChildAt(index)
-            measureChild(
-                child,
-                widthMeasureSpec,
-                heightMeasureSpec
+        val heightSpec =
+            MeasureSpec.makeMeasureSpec(
+                height,
+                MeasureSpec.EXACTLY
             )
-            totalWidth += child.measuredWidth
-        }
+
+        val clock = getChildAt(0)
+        val notificationIcons =
+            if (childCount > 1) getChildAt(1) else null
+
+        // The notification area receives only the width left after
+        // the clock. This mirrors SystemUI: notification icons cannot
+        // consume the clock's reserved space.
+        val clockWidthSpec =
+            MeasureSpec.makeMeasureSpec(
+                availableWidth,
+                MeasureSpec.AT_MOST
+            )
+
+        clock.measure(
+            clockWidthSpec,
+            heightSpec
+        )
+
+        val remainingWidth =
+            (
+                availableWidth -
+                    clock.measuredWidth
+            ).coerceAtLeast(0)
+
+        notificationIcons?.measure(
+            MeasureSpec.makeMeasureSpec(
+                remainingWidth,
+                MeasureSpec.AT_MOST
+            ),
+            heightSpec
+        )
+
+        val totalWidth =
+            clock.measuredWidth +
+                (notificationIcons?.measuredWidth ?: 0)
 
         setMeasuredDimension(
             resolveSize(totalWidth, widthMeasureSpec),
