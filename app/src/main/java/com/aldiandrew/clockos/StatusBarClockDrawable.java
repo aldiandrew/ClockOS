@@ -131,7 +131,7 @@ public final class StatusBarClockDrawable extends Drawable {
         float textSizePx = TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_SP,
                 sizeSp,
-                getDensity().getDisplayMetrics()
+                getDensity()
         );
 
         paint.setTextSize(textSizePx);
@@ -165,7 +165,7 @@ public final class StatusBarClockDrawable extends Drawable {
                         TypedValue.applyDimension(
                                 TypedValue.COMPLEX_UNIT_SP,
                                 24f,
-                                getDensity().getDisplayMetrics()
+                                getDensity()
                         )
                 )
         );
@@ -176,7 +176,7 @@ public final class StatusBarClockDrawable extends Drawable {
         float textSizePx = TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_SP,
                 sizeSp,
-                getDensity().getDisplayMetrics()
+                getDensity()
         );
 
         paint.setTextSize(textSizePx);
