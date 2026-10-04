@@ -210,6 +210,12 @@ class MainActivity : ComponentActivity() {
                 )
             )
 
+            // Restore the native clock immediately. The service also performs
+            // this restoration from onDestroy as a second safety net.
+            shell.execute(
+                "cmd statusbar send-disable-flag none"
+            )
+
             clockEnabled = false
 
             Toast.makeText(
@@ -234,20 +240,20 @@ class MainActivity : ComponentActivity() {
                     return@runOnUiThread
                 }
 
-                // Restore any clock-disable flag left by an older ClockOS
-                // build. The current build intentionally keeps the native
-                // clock layout active and visually masks its glyphs.
+                // Disable the native SystemUI clock before starting
+                // the replacement overlay, so two clocks can never be
+                // visible at the same time.
                 shell.execute(
-                    "cmd statusbar send-disable-flag none"
-                ) { restoreResult ->
+                    "cmd statusbar send-disable-flag clock"
+                ) { disableResult ->
                     runOnUiThread {
                         if (
-                            !restoreResult
+                            !disableResult
                                 .startsWith("exit=0")
                         ) {
                             Toast.makeText(
                                 this,
-                                restoreResult.take(300),
+                                disableResult.take(300),
                                 Toast.LENGTH_LONG
                             ).show()
                             return@runOnUiThread
@@ -269,6 +275,12 @@ class MainActivity : ComponentActivity() {
                                 Toast.LENGTH_SHORT
                             ).show()
                         } catch (t: Throwable) {
+                            // Never leave the stock clock disabled if the
+                            // replacement service could not be started.
+                            shell.execute(
+                                "cmd statusbar send-disable-flag none"
+                            )
+
                             Toast.makeText(
                                 this,
                                 "Could not start ClockOS: " +
