@@ -1,11 +1,8 @@
 package com.aldiandrew.clockos
 
-import android.content.ComponentName
 import android.content.Intent
-import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.app.NotificationManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -179,7 +176,7 @@ class MainActivity : ComponentActivity() {
 
     private fun refreshNotificationAccess() {
         notificationAccess =
-            hasNotificationListenerAccess(this)
+            hasClockNotificationAccess(this)
     }
 
     private fun openNotificationAccessSettings() {
@@ -246,6 +243,16 @@ class MainActivity : ComponentActivity() {
                 "Shizuku is not ready",
                 Toast.LENGTH_SHORT
             ).show()
+            return
+        }
+
+        if (enable && !notificationAccess) {
+            Toast.makeText(
+                this,
+                "Grant notification access first",
+                Toast.LENGTH_SHORT
+            ).show()
+            openNotificationAccessSettings()
             return
         }
 
@@ -563,7 +570,7 @@ private fun ClockScreen(
                 onClick = onStart,
                 modifier =
                     Modifier.fillMaxWidth(),
-                enabled = shizukuReady
+                enabled = shizukuReady && notificationAccess
             ) {
                 Text("Enable ClockOS")
             }
@@ -737,45 +744,4 @@ private fun SettingSwitch(
             onCheckedChange = onCheckedChange
         )
     }
-}
-
-
-private fun hasNotificationListenerAccess(
-    context: android.content.Context
-): Boolean {
-    val component =
-        ComponentName(
-            context,
-            ClockNotificationListener::class.java
-        )
-
-    if (Build.VERSION.SDK_INT >= 27) {
-        try {
-            return context
-                .getSystemService(
-                    NotificationManager::class.java
-                )
-                ?.isNotificationListenerAccessGranted(
-                    component
-                ) == true
-        } catch (_: Throwable) {
-        }
-    }
-
-    val enabled =
-        try {
-            Settings.Secure.getString(
-                context.contentResolver,
-                "enabled_notification_listeners"
-            )
-        } catch (_: Throwable) {
-            null
-        }
-
-    return enabled
-        ?.split(":")
-        ?.any {
-            it == component.flattenToString() ||
-                it == component.flattenToShortString()
-        } == true
 }
