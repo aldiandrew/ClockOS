@@ -17,6 +17,8 @@ class ClockNotificationListener : NotificationListenerService() {
             null
         }
 
+        NotificationIconStore.setListenerConnected(true)
+
         NotificationIconStore.replaceAll(
             active.orEmpty()
                 .mapNotNull { snapshot(it) }
@@ -24,6 +26,7 @@ class ClockNotificationListener : NotificationListenerService() {
     }
 
     override fun onListenerDisconnected() {
+        NotificationIconStore.setListenerConnected(false)
         NotificationIconStore.clear()
         super.onListenerDisconnected()
     }
