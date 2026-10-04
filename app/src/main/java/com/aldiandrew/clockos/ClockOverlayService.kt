@@ -206,13 +206,17 @@ class ClockOverlayService : Service() {
         }
 
         if (::shell.isInitialized) {
-            // Remove the transparent SystemUI resource overlay. The native
-            // clock immediately becomes visible again and keeps its original
-            // layout slot for notifications.
+            // Remove the transparent SystemUI resource overlay first.
+            // Then clear any legacy DISABLE_CLOCK state left by older
+            // ClockOS builds. The stock clock is restored in both cases.
             shell.execute(
                 "clockos:overlay:disable"
             ) {
-                shell.unbind()
+                shell.execute(
+                    "cmd statusbar send-disable-flag none"
+                ) {
+                    shell.unbind()
+                }
             }
         }
 
