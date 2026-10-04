@@ -135,7 +135,10 @@ class MainActivity : ComponentActivity() {
 
         if (!enable) {
             stopService(
-                Intent(this, ClockOverlayService::class.java)
+                Intent(
+                    this,
+                    ClockOverlayService::class.java
+                )
             )
             clockEnabled = false
 
@@ -161,29 +164,48 @@ class MainActivity : ComponentActivity() {
                     return@runOnUiThread
                 }
 
-                try {
-                    startForegroundService(
-                        Intent(
-                            this,
-                            ClockOverlayService::class.java
-                        )
-                    )
+                // Keep the native SystemUI clock visible. Its real view must
+                // retain its measured width so the notification area remains
+                // correctly positioned. Older ClockOS builds disabled it, so
+                // clear that old flag before starting the replacement overlay.
+                shell.execute(
+                    "cmd statusbar send-disable-flag none"
+                ) { restoreResult ->
+                    runOnUiThread {
+                        if (!restoreResult.startsWith("exit=0")) {
+                            Toast.makeText(
+                                this,
+                                restoreResult.take(300),
+                                Toast.LENGTH_LONG
+                            ).show()
+                            return@runOnUiThread
+                        }
 
-                    clockEnabled = true
+                        try {
+                            startForegroundService(
+                                Intent(
+                                    this,
+                                    ClockOverlayService::class.java
+                                )
+                            )
 
-                    Toast.makeText(
-                        this,
-                        "ClockOS enabled",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                } catch (t: Throwable) {
-                    Toast.makeText(
-                        this,
-                        "Could not start ClockOS: " +
-                            (t.message
-                                ?: t.javaClass.simpleName),
-                        Toast.LENGTH_LONG
-                    ).show()
+                            clockEnabled = true
+
+                            Toast.makeText(
+                                this,
+                                "ClockOS enabled",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } catch (t: Throwable) {
+                            Toast.makeText(
+                                this,
+                                "Could not start ClockOS: " +
+                                    (t.message
+                                        ?: t.javaClass.simpleName),
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
                 }
             }
         }
