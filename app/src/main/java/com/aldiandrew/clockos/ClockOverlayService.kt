@@ -8,15 +8,17 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.text.Spannable
 import android.text.SpannableStringBuilder
+import android.text.format.DateFormat
 import android.text.style.RelativeSizeSpan
 import android.util.TypedValue
-import android.view.DisplayCutout
 import android.view.Gravity
 import android.view.View
 import android.view.WindowInsets
@@ -35,12 +37,18 @@ class ClockOverlayService : Service() {
         private const val CHANNEL_ID = "clockos"
         private const val CHANNEL_NAME = "ClockOS"
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
+
+        // android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+        private const val APPEARANCE_LIGHT_STATUS_BARS = 8L
+
+        private const val EXTRA_RELATIVE_SIZE = 0.70f
     }
 
     private lateinit var windowManager: WindowManager
     private lateinit var clockView: TextView
     private lateinit var params: WindowManager.LayoutParams
     private lateinit var shell: ShizukuShell
+    private lateinit var systemUiContext: Context
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -49,6 +57,9 @@ class ClockOverlayService : Service() {
     private var lastHeight = 0
     private var lastX = Int.MIN_VALUE
     private var lastY = Int.MIN_VALUE
+
+    private var lastRendered = ""
+    private var lastSizeSp = Float.NaN
 
     private val tick = object : Runnable {
         override fun run() {
@@ -70,9 +81,11 @@ class ClockOverlayService : Service() {
         startId: Int
     ): Int {
         if (intent?.action == ACTION_SETTINGS_CHANGED) {
+            lastRendered = ""
             updateClock()
             refreshSystemUiAppearance()
         }
+
         return START_STICKY
     }
 
@@ -89,6 +102,16 @@ class ClockOverlayService : Service() {
 
         try {
             shell = ShizukuShell(this)
+
+            systemUiContext =
+                try {
+                    createPackageContext(
+                        SYSTEM_UI_PACKAGE,
+                        Context.CONTEXT_IGNORE_SECURITY
+                    )
+                } catch (_: Throwable) {
+                    this
+                }
 
             createNotificationChannel()
 
@@ -108,7 +131,8 @@ class ClockOverlayService : Service() {
             windowManager =
                 getSystemService(WindowManager::class.java)
 
-            clockView = createSystemUiStyledClock()
+            clockView =
+                createSystemUiStyledClock()
 
             params = WindowManager.LayoutParams(
                 nativeClockSlotWidthPx(),
@@ -139,9 +163,6 @@ class ClockOverlayService : Service() {
                 params
             )
 
-            // Do NOT disable the native SystemUI clock.
-            // Its real view keeps the notification layout space reserved.
-            // ClockOS is rendered directly above that slot.
             clockView.setOnApplyWindowInsetsListener { view, insets ->
                 updatePosition(view, insets)
                 insets
@@ -194,17 +215,8 @@ class ClockOverlayService : Service() {
     }
 
     private fun createSystemUiStyledClock(): TextView {
-        val systemUiContext =
-            try {
-                createPackageContext(
-                    SYSTEM_UI_PACKAGE,
-                    Context.CONTEXT_IGNORE_SECURITY
-                )
-            } catch (_: Throwable) {
-                this
-            }
-
-        val view = TextView(systemUiContext)
+        val view =
+            TextView(systemUiContext)
 
         val styleId =
             systemUiContext.resources.getIdentifier(
@@ -220,8 +232,6 @@ class ClockOverlayService : Service() {
             }
         }
 
-        // Keep a deterministic native-looking fallback on vendor builds
-        // where the SystemUI style is unavailable.
         if (view.typeface == null) {
             view.setTypeface(
                 Typeface.create(
@@ -243,10 +253,69 @@ class ClockOverlayService : Service() {
             0
         )
 
+        // Keep the native SystemUI clock's real layout slot, but cover its
+        // glyphs with the SystemUI status-bar background. This removes the
+        // duplicate/shadow clock without moving notification icons.
+        view.background =
+            loadSystemUiStatusBarBackground()
+
         view.importantForAccessibility =
             View.IMPORTANT_FOR_ACCESSIBILITY_NO
 
         return view
+    }
+
+    private fun loadSystemUiStatusBarBackground(): Drawable {
+        val resources = systemUiContext.resources
+
+        val drawableNames =
+            arrayOf(
+                "status_bar_background",
+                "system_bar_background",
+                "status_background"
+            )
+
+        for (name in drawableNames) {
+            val id =
+                resources.getIdentifier(
+                    name,
+                    "drawable",
+                    SYSTEM_UI_PACKAGE
+                )
+
+            if (id != 0) {
+                try {
+                    return resources.getDrawable(
+                        id,
+                        systemUiContext.theme
+                    ).mutate()
+                } catch (_: Throwable) {
+                }
+            }
+        }
+
+        val opaqueId =
+            resources.getIdentifier(
+                "system_bar_background_opaque",
+                "color",
+                SYSTEM_UI_PACKAGE
+            )
+
+        if (opaqueId != 0) {
+            try {
+                return ColorDrawable(
+                    resources.getColor(
+                        opaqueId,
+                        systemUiContext.theme
+                    )
+                )
+            } catch (_: Throwable) {
+            }
+        }
+
+        // Last-resort mask for SystemUI builds that expose no background
+        // resource. It prevents the native clock from remaining visible.
+        return ColorDrawable(Color.BLACK)
     }
 
     private fun updateClock() {
@@ -255,9 +324,81 @@ class ClockOverlayService : Service() {
         val settings =
             ClockPrefs(this).load()
 
-        val now = Date()
+        if (settings.sizeSp != lastSizeSp) {
+            // TextView.setTextSize(float) is SP, while getTextSize() is PX.
+            // Use the explicit unit API to avoid the previous giant-clock bug.
+            clockView.setTextSize(
+                TypedValue.COMPLEX_UNIT_SP,
+                settings.sizeSp
+            )
+            lastSizeSp = settings.sizeSp
+        }
 
+        val now = Date()
         val timePattern =
+            buildTimePattern(settings)
+
+        val timeText =
+            SimpleDateFormat(
+                timePattern,
+                Locale.getDefault()
+            ).format(now)
+
+        val extras =
+            buildList {
+                if (settings.showDate) {
+                    add(
+                        formatDate(
+                            settings,
+                            now
+                        )
+                    )
+                }
+
+                if (settings.showDay) {
+                    add(
+                        SimpleDateFormat(
+                            "EEE",
+                            Locale.getDefault()
+                        ).format(now)
+                    )
+                }
+            }
+
+        val rendered =
+            buildClockSpannable(
+                timeText = timeText,
+                extras = extras,
+                amPmStyle = settings.amPmStyle
+            )
+
+        val renderedKey =
+            rendered.toString() +
+                "|" +
+                settings.amPmStyle +
+                "|" +
+                settings.dateStyle
+
+        if (renderedKey != lastRendered) {
+            clockView.text =
+                rendered
+            lastRendered = renderedKey
+
+            // Keep the requested font size and only compress the complete
+            // line horizontally when the native clock slot is too narrow.
+            applyHorizontalFit()
+        }
+
+        updatePosition(
+            clockView,
+            clockView.rootWindowInsets
+        )
+    }
+
+    private fun buildTimePattern(
+        settings: ClockSettings
+    ): String {
+        val clock =
             if (settings.format24) {
                 if (settings.showSeconds) {
                     "HH:mm:ss"
@@ -272,82 +413,106 @@ class ClockOverlayService : Service() {
                 }
             }
 
-        val timeText =
-            SimpleDateFormat(
-                timePattern,
-                Locale.getDefault()
-            ).format(now)
-
-        val extras = buildList {
-            if (settings.showDate) {
-                add(
-                    SimpleDateFormat(
-                        "dd/MM",
-                        Locale.getDefault()
-                    ).format(now)
-                )
-            }
-
-            if (settings.showDay) {
-                add(
-                    SimpleDateFormat(
-                        "EEE",
-                        Locale.getDefault()
-                    ).format(now)
-                )
-            }
+        return if (
+            !settings.format24 &&
+            settings.amPmStyle != 2
+        ) {
+            "$clock a"
+        } else {
+            clock
         }
+    }
 
-        clockView.textSize =
-            sp(settings.sizeSp.coerceIn(10f, 22f))
+    private fun formatDate(
+        settings: ClockSettings,
+        now: Date
+    ): String {
+        val pattern =
+            if (
+                settings.dateFormat == "CUSTOM"
+            ) {
+                settings.customDateFormat
+                    .takeIf { it.isNotBlank() }
+                    ?: "dd/MM"
+            } else {
+                settings.dateFormat
+            }
 
-        clockView.text =
-            buildClockSpannable(
-                timeText = timeText,
-                extras = extras
+        val formatted =
+            try {
+                SimpleDateFormat(
+                    pattern,
+                    Locale.getDefault()
+                ).format(now)
+            } catch (_: IllegalArgumentException) {
+                SimpleDateFormat(
+                    "dd/MM",
+                    Locale.getDefault()
+                ).format(now)
+            }
+
+        return when (settings.dateStyle) {
+            1 -> formatted.lowercase(
+                Locale.getDefault()
             )
 
-        // Size controls the vertical text size. If the requested content
-        // becomes wider than the native clock slot, compress horizontally
-        // instead of shrinking the font size.
-        applyHorizontalFit()
+            2 -> formatted.uppercase(
+                Locale.getDefault()
+            )
 
-        clockView.alpha = 1f
-
-        updatePosition(
-            clockView,
-            clockView.rootWindowInsets
-        )
+            else -> formatted
+        }
     }
 
     private fun buildClockSpannable(
         timeText: String,
-        extras: List<String>
+        extras: List<String>,
+        amPmStyle: Int
     ): CharSequence {
-        if (extras.isEmpty()) {
-            return SpannableStringBuilder(timeText)
-        }
-
         val builder =
             SpannableStringBuilder(timeText)
 
-        val start = builder.length
-        val suffix =
-            "  " +
-                extras.joinToString(
-                    separator = "  "
+        if (
+            !amPmStyle.equals(2)
+        ) {
+            val amPmStart =
+                timeText.lastIndexOf(' ') + 1
+
+            if (
+                amPmStyle == 1 &&
+                amPmStart in 1 until builder.length
+            ) {
+                builder.setSpan(
+                    RelativeSizeSpan(
+                        EXTRA_RELATIVE_SIZE
+                    ),
+                    amPmStart,
+                    builder.length,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
                 )
+            }
+        }
 
-        builder.append(suffix)
+        if (extras.isNotEmpty()) {
+            val start =
+                builder.length
 
-        // Keep date/day visually secondary, like the smaller AM/PM treatment
-        // used by native SystemUI clocks.
-        builder.setSpan(
-            RelativeSizeSpan(0.70f),
-            start,
-            builder.length,
-            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-        )
+            builder.append(
+                "  " +
+                    extras.joinToString(
+                        separator = "  "
+                    )
+            )
+
+            builder.setSpan(
+                RelativeSizeSpan(
+                    EXTRA_RELATIVE_SIZE
+                ),
+                start,
+                builder.length,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
 
         return builder
     }
@@ -359,17 +524,77 @@ class ClockOverlayService : Service() {
             nativeClockTextWidthPx()
                 .coerceAtLeast(dp(20f))
 
-        val measured =
-            clockView.paint.measureText(
+        val paint =
+            android.graphics.Paint(
+                clockView.paint
+            ).apply {
+                textScaleX = 1f
+            }
+
+        var width =
+            paint.measureText(
                 clockView.text.toString()
             )
 
+        val text =
+            clockView.text
+
+        if (
+            text is Spannable &&
+            text.length > 0
+        ) {
+            // Recalculate extras and AM/PM at their actual relative size
+            // because Paint#measureText alone ignores spans.
+            paint.textSize =
+                clockView.textSize
+
+            val plain =
+                text.toString()
+
+            val fullWidth =
+                paint.measureText(plain)
+
+            val extraStart =
+                plain.indexOf(
+                    "  "
+                )
+
+            if (extraStart >= 0) {
+                val main =
+                    plain.substring(
+                        0,
+                        extraStart
+                    )
+
+                val extras =
+                    plain.substring(
+                        extraStart
+                    )
+
+                val mainWidth =
+                    paint.measureText(main)
+
+                paint.textSize =
+                    clockView.textSize *
+                        EXTRA_RELATIVE_SIZE
+
+                val extraWidth =
+                    paint.measureText(extras)
+
+                width =
+                    mainWidth +
+                        extraWidth
+            } else {
+                width = fullWidth
+            }
+        }
+
         clockView.textScaleX =
             if (
-                measured > available &&
-                measured > 0f
+                width > available &&
+                width > 0f
             ) {
-                available / measured
+                available / width
             } else {
                 1f
             }
@@ -438,7 +663,6 @@ class ClockOverlayService : Service() {
                 )
 
             insetLeft = bars.left
-
             cutoutLeft =
                 insets.displayCutout
                     ?.safeInsetLeft
@@ -478,25 +702,24 @@ class ClockOverlayService : Service() {
 
         val paint =
             android.graphics.Paint(
-                clockViewOrPaint()
+                android.graphics.Paint.ANTI_ALIAS_FLAG
             ).apply {
+                typeface =
+                    clockViewOrPaint().typeface
                 textSize =
                     systemUiClockSizePx().toFloat()
+                textScaleX = 1f
             }
 
         val nativeText =
-            try {
-                val is24 =
-                    android.text.format.DateFormat
-                        .is24HourFormat(this)
-
-                if (is24) {
-                    "23:59"
-                } else {
-                    "11:59"
-                }
-            } catch (_: Throwable) {
+            if (
+                DateFormat.is24HourFormat(
+                    this
+                )
+            ) {
                 "23:59"
+            } else {
+                "11:59"
             }
 
         val measured =
@@ -544,14 +767,14 @@ class ClockOverlayService : Service() {
             ?.getDimensionPixelSizeByName(
                 "status_bar_clock_size"
             )
-            ?: sp(14f).toInt()
+            ?: dp(14f)
 
     private fun systemUiClockPaddingStartPx(): Int =
         systemUiResources()
             ?.getDimensionPixelSizeByName(
                 "status_bar_left_clock_starting_padding"
             )
-            ?: dp(0f)
+            ?: 0
 
     private fun systemUiClockPaddingEndPx(): Int =
         systemUiResources()
@@ -565,7 +788,7 @@ class ClockOverlayService : Service() {
             ?.getDimensionPixelSizeByName(
                 "status_bar_padding_start"
             )
-            ?: dp(0f)
+            ?: 0
 
     private fun systemUiPaddingTopPx(): Int =
         systemUiResources()
@@ -599,19 +822,17 @@ class ClockOverlayService : Service() {
                         resources.getDimensionPixelSize(it)
                     }
                 ?: dp(24f)
-        ).coerceAtLeast(dp(20f))
+        ).coerceAtLeast(
+            dp(20f)
+        )
     }
 
     private fun systemUiResources():
         SystemUiResources? {
         return try {
-            val context =
-                createPackageContext(
-                    SYSTEM_UI_PACKAGE,
-                    Context.CONTEXT_IGNORE_SECURITY
-                )
-
-            SystemUiResources(context)
+            SystemUiResources(
+                systemUiContext
+            )
         } catch (_: Throwable) {
             null
         }
@@ -629,25 +850,24 @@ class ClockOverlayService : Service() {
                 android.content.res.Configuration
                     .UI_MODE_NIGHT_YES
 
-        shell.execute("dumpsys statusbar") { result ->
-            val appearanceLine =
-                result.lineSequence()
-                    .firstOrNull {
-                        it.trimStart()
-                            .startsWith("mAppearance=")
-                    }
-
-            val light =
-                appearanceLine?.contains(
-                    "LIGHT_STATUS_BARS",
-                    ignoreCase = true
-                ) ?: !fallbackNight
+        shell.execute(
+            "dumpsys statusbar"
+        ) { result ->
+            val appearance =
+                parseStatusBarAppearance(
+                    result
+                )
 
             val color =
-                if (light) {
-                    Color.BLACK
-                } else {
-                    Color.WHITE
+                when (appearance) {
+                    true -> Color.BLACK
+                    false -> Color.WHITE
+                    null -> nativeClockColor()
+                        ?: if (fallbackNight) {
+                            Color.WHITE
+                        } else {
+                            Color.BLACK
+                        }
                 }
 
             handler.post {
@@ -659,6 +879,83 @@ class ClockOverlayService : Service() {
                     clockView.setTextColor(color)
                 }
             }
+        }
+    }
+
+    private fun parseStatusBarAppearance(
+        dump: String
+    ): Boolean? {
+        val line =
+            dump.lineSequence()
+                .firstOrNull {
+                    it.trimStart()
+                        .startsWith("mAppearance=")
+                }
+                ?: return null
+
+        val valueText =
+            line.substringAfter('=')
+                .trim()
+                .substringBefore(
+                    Regex("[^0-9a-fA-FxX]")
+                )
+
+        if (valueText.isBlank()) {
+            if (
+                line.contains(
+                    "LIGHT_STATUS_BARS",
+                    true
+                )
+            ) {
+                return true
+            }
+
+            return null
+        }
+
+        val value =
+            try {
+                if (
+                    valueText.startsWith(
+                        "0x",
+                        true
+                    )
+                ) {
+                    valueText
+                        .substring(2)
+                        .toLongOrNull(16)
+                } else {
+                    valueText.toLongOrNull()
+                }
+            } catch (_: Throwable) {
+                null
+            }
+
+        return value?.let {
+            (it and APPEARANCE_LIGHT_STATUS_BARS) != 0L
+        }
+    }
+
+    private fun nativeClockColor(): Int? {
+        val resources =
+            systemUiContext.resources
+
+        val id =
+            resources.getIdentifier(
+                "status_bar_clock_color",
+                "color",
+                SYSTEM_UI_PACKAGE
+            )
+
+        if (id == 0) return null
+
+        return try {
+            resources.getColor(
+                id,
+                systemUiContext.theme
+            )
+        } catch (_: Throwable) {
+            null
         }
     }
 
@@ -676,10 +973,6 @@ class ClockOverlayService : Service() {
         )
             .toInt()
             .coerceAtLeast(1)
-
-    private fun sp(value: Float): Float =
-        value *
-            resources.displayMetrics.scaledDensity
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT < 26) {
