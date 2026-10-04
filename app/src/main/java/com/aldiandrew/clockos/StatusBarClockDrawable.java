@@ -15,7 +15,9 @@ import android.util.AttributeSet;
 import android.util.TypedValue;
 
 import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
 
+import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -51,7 +53,7 @@ public final class StatusBarClockDrawable extends Drawable {
             XmlPullParser parser,
             AttributeSet attrs,
             android.content.res.Resources.Theme theme
-    ) {
+    ) throws XmlPullParserException, IOException {
         super.inflate(res, parser, attrs, theme);
 
         if (attrs != null) {
