@@ -108,7 +108,7 @@ class ClockOverlayService : Service() {
             // the native clock without root/Xposed.
             shell.execute(
                 "cmd statusbar send-disable-flag clock"
-            )
+            ) { }
 
             systemUiContext =
                 try {
