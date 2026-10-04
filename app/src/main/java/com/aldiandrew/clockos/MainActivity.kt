@@ -388,10 +388,9 @@ private fun ClockScreen(
             }
 
             Text(
-                "ClockOS uses the native SystemUI clock slot, " +
-                    "font family, and status-bar tint. " +
-                    "The native glyph is visually masked so " +
-                    "notifications keep their original layout.",
+                "ClockOS uses the native SystemUI clock font " +
+                    "and status-bar tint. Date and day are controlled " +
+                    "by Date format.",
                 style =
                     MaterialTheme.typography.bodySmall
             )
@@ -479,16 +478,6 @@ private fun ClockScreen(
                             .coerceAtLeast(0)
                     )
                 }
-            }
-
-            SettingSwitch(
-                label = "Day",
-                checked = settings.showDay
-            ) {
-                save(
-                    "showDay",
-                    it
-                )
             }
 
             if (!settings.format24) {
