@@ -103,11 +103,24 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun sendSettingsChangedBroadcast() {
-        sendBroadcast(
-            Intent(this, ClockOverlayService::class.java).apply {
-                action = ClockOverlayService.ACTION_SETTINGS_CHANGED
-            }
-        )
+        try {
+            startService(
+                Intent(
+                    this,
+                    ClockOverlayService::class.java
+                ).apply {
+                    action =
+                        ClockOverlayService.ACTION_SETTINGS_CHANGED
+                }
+            )
+        } catch (t: Throwable) {
+            Toast.makeText(
+                this,
+                "Could not update ClockOS: " +
+                    (t.message ?: t.javaClass.simpleName),
+                Toast.LENGTH_SHORT
+            ).show()
+        }
     }
 
     private fun applyClock(enable: Boolean) {
@@ -148,46 +161,29 @@ class MainActivity : ComponentActivity() {
                     return@runOnUiThread
                 }
 
-                // Keep the real SystemUI clock and notification layout intact.
-                // ClockOS is placed exactly over the clock's native area.
-                shell.execute(
-                    "cmd statusbar send-disable-flag none"
-                ) { restoreResult ->
-                    runOnUiThread {
-                        if (!restoreResult.startsWith("exit=0")) {
-                            Toast.makeText(
-                                this,
-                                restoreResult.take(300),
-                                Toast.LENGTH_LONG
-                            ).show()
-                            return@runOnUiThread
-                        }
+                try {
+                    startForegroundService(
+                        Intent(
+                            this,
+                            ClockOverlayService::class.java
+                        )
+                    )
 
-                        try {
-                            startForegroundService(
-                                Intent(
-                                    this,
-                                    ClockOverlayService::class.java
-                                )
-                            )
+                    clockEnabled = true
 
-                            clockEnabled = true
-
-                            Toast.makeText(
-                                this,
-                                "ClockOS enabled",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        } catch (t: Throwable) {
-                            Toast.makeText(
-                                this,
-                                "Could not start ClockOS: " +
-                                    (t.message
-                                        ?: t.javaClass.simpleName),
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
-                    }
+                    Toast.makeText(
+                        this,
+                        "ClockOS enabled",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } catch (t: Throwable) {
+                    Toast.makeText(
+                        this,
+                        "Could not start ClockOS: " +
+                            (t.message
+                                ?: t.javaClass.simpleName),
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             }
         }
