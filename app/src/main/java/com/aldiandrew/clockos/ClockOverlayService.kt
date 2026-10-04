@@ -626,10 +626,19 @@ class ClockOverlayService : Service() {
                     ?: 0
         }
 
-        return maxOf(
-            insetLeft,
-            cutoutLeft
-        ) + systemUiPaddingStartPx()
+        val baseX =
+            maxOf(
+                insetLeft,
+                cutoutLeft
+            ) + systemUiPaddingStartPx()
+
+        val positionOffsetPx =
+            (
+                ClockPrefs(this).load().horizontalPositionDp *
+                    resources.displayMetrics.density
+            ).toInt()
+
+        return baseX + positionOffsetPx
     }
 
     private fun statusBarStartX(): Int =
@@ -659,9 +668,16 @@ class ClockOverlayService : Service() {
                     resources.displayMetrics.density
             ).toInt()
 
+        val customVerticalOffsetPx =
+            (
+                ClockPrefs(this).load().verticalPositionDp *
+                    resources.displayMetrics.density
+            ).toInt()
+
         return (
             base +
-                offsetPx
+                offsetPx +
+                customVerticalOffsetPx
         ).coerceAtLeast(0)
     }
 
