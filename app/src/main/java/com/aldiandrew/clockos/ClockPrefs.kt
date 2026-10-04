@@ -4,7 +4,6 @@ import android.content.Context
 
 data class ClockSettings(
     val format24: Boolean = true,
-    val showSeconds: Boolean = false,
     val showDate: Boolean = false,
     val dateFormat: String = "dd/MM",
     val customDateFormat: String = "",
@@ -23,7 +22,6 @@ class ClockPrefs(context: Context) {
 
     fun load() = ClockSettings(
         format24 = prefs.getBoolean("format24", true),
-        showSeconds = prefs.getBoolean("showSeconds", false),
         showDate = prefs.getBoolean("showDate", false),
         dateFormat = prefs.getString("dateFormat", "dd/MM")
             ?: "dd/MM",
