@@ -12,6 +12,10 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.text.Spannable
+import android.text.SpannableStringBuilder
+import android.text.style.RelativeSizeSpan
+import android.util.TypedValue
 import android.view.DisplayCutout
 import android.view.Gravity
 import android.view.View
@@ -39,7 +43,8 @@ class ClockOverlayService : Service() {
     private lateinit var shell: ShizukuShell
 
     private val handler = Handler(Looper.getMainLooper())
-    private var lastColor: Int = Color.WHITE
+
+    private var lastColor = Color.WHITE
     private var lastWidth = 0
     private var lastHeight = 0
     private var lastX = Int.MIN_VALUE
@@ -47,10 +52,7 @@ class ClockOverlayService : Service() {
     private val tick = object : Runnable {
         override fun run() {
             updateClock()
-            handler.postDelayed(
-                this,
-                1000L
-            )
+            handler.postDelayed(this, 1000L)
         }
     }
 
@@ -76,18 +78,25 @@ class ClockOverlayService : Service() {
     override fun onCreate() {
         super.onCreate()
 
-        if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
+        if (
+            Build.VERSION.SDK_INT >= 23 &&
+            !Settings.canDrawOverlays(this)
+        ) {
             stopSelf()
             return
         }
 
         try {
             shell = ShizukuShell(this)
+
             createNotificationChannel()
+
             startForeground(
                 1001,
                 Notification.Builder(this, CHANNEL_ID)
-                    .setSmallIcon(android.R.drawable.ic_menu_recent_history)
+                    .setSmallIcon(
+                        android.R.drawable.ic_menu_recent_history
+                    )
                     .setContentTitle("ClockOS")
                     .setContentText("Custom clock is active")
                     .setOngoing(true)
@@ -95,25 +104,14 @@ class ClockOverlayService : Service() {
                     .build()
             )
 
-            windowManager = getSystemService(WindowManager::class.java)
+            windowManager =
+                getSystemService(WindowManager::class.java)
 
-            clockView = TextView(this).apply {
-                setSingleLine(true)
-                includeFontPadding = false
-                gravity = Gravity.CENTER_VERTICAL or Gravity.START
-                setTypeface(
-                    Typeface.create(
-                        "sans-serif-medium",
-                        Typeface.NORMAL
-                    )
-                )
-                importantForAccessibility =
-                    View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            }
+            clockView = createSystemUiStyledClock()
 
             params = WindowManager.LayoutParams(
-                clockAreaWidthPx(),
-                statusBarHeightPx(),
+                nativeClockSlotWidthPx(),
+                statusBarSystemIconsHeightPx(),
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
@@ -121,12 +119,14 @@ class ClockOverlayService : Service() {
                 android.graphics.PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
-                x = 0
-                y = 0
+
+                x = statusBarStartX()
+                y = statusBarClockTopY()
 
                 if (Build.VERSION.SDK_INT >= 28) {
                     layoutInDisplayCutoutMode =
-                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                        WindowManager.LayoutParams
+                            .LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
                 }
 
                 if (Build.VERSION.SDK_INT >= 30) {
@@ -135,21 +135,6 @@ class ClockOverlayService : Service() {
             }
 
             windowManager.addView(clockView, params)
-
-            // Hide only SystemUI's native clock after our replacement view
-            // is successfully attached. The clock disable flag does not
-            // disable notification or system-icon groups.
-            shell.execute("cmd statusbar send-disable-flag clock") { result ->
-                if (!result.startsWith("exit=0")) {
-                    handler.post {
-                        try {
-                            windowManager.removeViewImmediate(clockView)
-                        } catch (_: Throwable) {
-                        }
-                        stopSelf()
-                    }
-                }
-            }
 
             clockView.setOnApplyWindowInsetsListener { view, insets ->
                 updatePosition(view, insets)
@@ -167,113 +152,186 @@ class ClockOverlayService : Service() {
             refreshSystemUiAppearance()
 
             handler.post(tick)
-            handler.postDelayed(appearanceTick, 500L)
+            handler.postDelayed(
+                appearanceTick,
+                500L
+            )
         } catch (_: Throwable) {
-            // Never leave SystemUI with its clock disabled if the overlay
-            // could not be created.
-            try {
-                if (::shell.isInitialized) {
-                    shell.execute("cmd statusbar send-disable-flag none") {}
-                }
-            } catch (_: Throwable) {
-            }
             stopSelf()
         }
     }
 
-    override fun onBind(intent: Intent?): android.os.IBinder? = null
+    override fun onBind(
+        intent: Intent?
+    ): android.os.IBinder? = null
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
 
         try {
-            if (::windowManager.isInitialized && ::clockView.isInitialized) {
-                windowManager.removeViewImmediate(clockView)
+            if (
+                ::windowManager.isInitialized &&
+                ::clockView.isInitialized
+            ) {
+                windowManager.removeViewImmediate(
+                    clockView
+                )
             }
         } catch (_: Throwable) {
         }
 
-        // Restore SystemUI's native clock whenever ClockOS stops.
         if (::shell.isInitialized) {
-            try {
-                shell.execute("cmd statusbar send-disable-flag none") {}
-            } catch (_: Throwable) {
-            }
             shell.unbind()
         }
 
         super.onDestroy()
     }
 
+    private fun createSystemUiStyledClock(): TextView {
+        val systemUiContext =
+            try {
+                createPackageContext(
+                    SYSTEM_UI_PACKAGE,
+                    Context.CONTEXT_IGNORE_SECURITY
+                )
+            } catch (_: Throwable) {
+                this
+            }
+
+        val view = TextView(systemUiContext)
+
+        val styleId =
+            systemUiContext.resources.getIdentifier(
+                "TextAppearance.StatusBar.Clock",
+                "style",
+                SYSTEM_UI_PACKAGE
+            )
+
+        if (styleId != 0) {
+            try {
+                view.setTextAppearance(styleId)
+            } catch (_: Throwable) {
+            }
+        } else {
+            view.setTypeface(
+                Typeface.create(
+                    "sans-serif-medium",
+                    Typeface.NORMAL
+                )
+            )
+        }
+
+        view.setSingleLine(true)
+        view.includeFontPadding = false
+        view.gravity =
+            Gravity.CENTER_VERTICAL or Gravity.START
+
+        view.setPadding(
+            systemUiClockPaddingStartPx(),
+            0,
+            systemUiClockPaddingEndPx(),
+            0
+        )
+
+        view.importantForAccessibility =
+            View.IMPORTANT_FOR_ACCESSIBILITY_NO
+
+        return view
+    }
+
     private fun updateClock() {
         if (!::clockView.isInitialized) return
 
-        val settings = ClockPrefs(this).load()
-        val pattern = buildString {
-            append(if (settings.format24) "HH:mm" else "hh:mm a")
+        val settings =
+            ClockPrefs(this).load()
 
-            if (settings.showSeconds) {
-                append(":ss")
+        val now = Date()
+
+        val timePattern =
+            if (settings.format24) {
+                if (settings.showSeconds) {
+                    "HH:mm:ss"
+                } else {
+                    "HH:mm"
+                }
+            } else {
+                if (settings.showSeconds) {
+                    "hh:mm:ss"
+                } else {
+                    "hh:mm"
+                }
             }
 
+        val timeText =
+            SimpleDateFormat(
+                timePattern,
+                Locale.getDefault()
+            ).format(now)
+
+        val extras = buildList {
             if (settings.showDate) {
-                append(" dd/MM")
+                add(
+                    SimpleDateFormat(
+                        "dd/MM",
+                        Locale.getDefault()
+                    ).format(now)
+                )
             }
 
             if (settings.showDay) {
-                append(" EEE")
+                add(
+                    SimpleDateFormat(
+                        "EEE",
+                        Locale.getDefault()
+                    ).format(now)
+                )
             }
         }
 
-        val text = SimpleDateFormat(
-            pattern,
-            Locale.getDefault()
-        ).format(Date())
+        applyMainTextSize(settings.sizeSp)
 
-        clockView.text = text
+        clockView.text =
+            buildClockSpannable(
+                timeText = timeText,
+                extras = extras,
+                availableWidth = nativeClockTextWidthPx()
+            )
+
         clockView.alpha = 1f
         clockView.textScaleX = 1f
 
-        applyTextSizing(settings.sizeSp)
         updatePosition(
             clockView,
             clockView.rootWindowInsets
         )
     }
 
-    private fun applyTextSizing(requestedSp: Float) {
-        val paddingStart = systemUiClockPaddingStartPx()
-        val paddingEnd = systemUiClockPaddingEndPx()
-        val metrics = clockView.paint
+    private fun applyMainTextSize(
+        requestedSp: Float
+    ) {
+        val requested =
+            requestedSp.coerceIn(10f, 22f)
 
-        // Keep the overlay inside the space that the native SystemUI clock
-        // normally occupies. SystemUI's notification area is laid out next
-        // to that native clock view, so extending beyond this width causes
-        // notification icons to be covered.
-        val reservedWidth = clockAreaWidthPx()
-        val availableTextWidth = (
-            reservedWidth -
-                paddingStart -
-                paddingEnd -
-                dp(2f)
-        ).coerceAtLeast(dp(20f))
+        val maxMainWidth =
+            nativeClockTextWidthPx()
+                .coerceAtLeast(dp(32f))
 
-        clockView.setPadding(
-            paddingStart,
-            0,
-            paddingEnd,
-            0
-        )
-
-        var size = requestedSp.coerceIn(10f, 22f)
+        var size = requested
+        val paint = clockView.paint
 
         while (size > 8f) {
-            clockView.textSize = size
+            paint.textSize = sp(size)
+
+            val timeSample =
+                if (ClockPrefs(this).load().format24) {
+                    "23:59:59"
+                } else {
+                    "11:59:59"
+                }
 
             if (
-                metrics.measureText(
-                    clockView.text.toString()
-                ) <= availableTextWidth
+                paint.measureText(timeSample) <=
+                    maxMainWidth
             ) {
                 break
             }
@@ -281,59 +339,98 @@ class ClockOverlayService : Service() {
             size -= 0.5f
         }
 
-        val measured = metrics.measureText(
-            clockView.text.toString()
-        ).coerceAtLeast(1f)
+        clockView.setTextSize(
+            TypedValue.COMPLEX_UNIT_SP,
+            size
+        )
+    }
 
-        // If all enabled fields are still longer than the native clock slot,
-        // compress horizontally as a final fallback rather than increasing
-        // the window into the notification area.
-        clockView.textScaleX =
-            if (measured > availableTextWidth) {
-                availableTextWidth / measured
-            } else {
-                1f
+    private fun buildClockSpannable(
+        timeText: String,
+        extras: List<String>,
+        availableWidth: Int
+    ): CharSequence {
+        val builder =
+            SpannableStringBuilder(timeText)
+
+        if (extras.isEmpty()) {
+            return builder
+        }
+
+        val basePaint =
+            android.graphics.Paint(clockView.paint).apply {
+                textSize = clockView.textSize
             }
 
-        if (::params.isInitialized) {
-            params.width = reservedWidth
+        val separator = "  "
+
+        val extraText =
+            separator + extras.joinToString(
+                separator = "  "
+            )
+
+        val mainWidth =
+            basePaint.measureText(timeText)
+
+        var scale = 0.70f
+
+        val extraPaint =
+            android.graphics.Paint(basePaint)
+
+        while (scale >= 0.35f) {
+            extraPaint.textSize =
+                clockView.textSize * scale
+
+            val extraWidth =
+                extraPaint.measureText(extraText)
+
+            if (
+                mainWidth + extraWidth <=
+                    availableWidth
+            ) {
+                break
+            }
+
+            scale -= 0.05f
         }
+
+        if (scale < 0.35f) {
+            scale = 0.35f
+        }
+
+        val start = builder.length
+
+        builder.append(extraText)
+
+        builder.setSpan(
+            RelativeSizeSpan(scale),
+            start,
+            builder.length,
+            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+
+        return builder
     }
 
     private fun updatePosition(
         view: View,
         insets: WindowInsets?
     ) {
-        if (!::params.isInitialized) return
-
-        val leftInset: Int
-        val cutout: DisplayCutout?
-
-        if (insets != null && Build.VERSION.SDK_INT >= 30) {
-            val bars = insets.getInsetsIgnoringVisibility(
-                WindowInsets.Type.statusBars()
-            )
-            leftInset = bars.left
-            cutout = insets.displayCutout
-        } else if (insets != null && Build.VERSION.SDK_INT >= 28) {
-            @Suppress("DEPRECATION")
-            leftInset = insets.systemWindowInsetLeft
-            cutout = insets.displayCutout
-        } else {
-            leftInset = 0
-            cutout = null
+        if (!::params.isInitialized) {
+            return
         }
 
-        val cutoutLeft =
-            cutout?.safeInsetLeft ?: 0
+        val targetX =
+            statusBarStartX(insets)
 
-        val targetX = maxOf(
-            leftInset,
-            cutoutLeft
-        ).coerceAtLeast(0)
+        val targetY =
+            statusBarClockTopY()
 
-        val targetWidth = customClockWidthPx()
-        val targetHeight = statusBarHeightPx()
+        val targetWidth =
+            nativeClockSlotWidthPx()
+
+        val targetHeight =
+            statusBarSystemIconsHeightPx()
 
         if (
             targetX == lastX &&
@@ -344,7 +441,7 @@ class ClockOverlayService : Service() {
         }
 
         params.x = targetX
-        params.y = 0
+        params.y = targetY
         params.width = targetWidth
         params.height = targetHeight
 
@@ -361,68 +458,124 @@ class ClockOverlayService : Service() {
         }
     }
 
-    private fun customClockWidthPx(): Int {
-        if (!::clockView.isInitialized) {
-            return clockAreaWidthPx()
+    private fun statusBarStartX(
+        insets: WindowInsets? =
+            clockViewOrNull()?.rootWindowInsets
+    ): Int {
+        var insetLeft = 0
+        var cutoutLeft = 0
+
+        if (
+            insets != null &&
+            Build.VERSION.SDK_INT >= 30
+        ) {
+            val bars =
+                insets.getInsetsIgnoringVisibility(
+                    WindowInsets.Type.statusBars()
+                )
+
+            insetLeft = bars.left
+            cutoutLeft =
+                insets.displayCutout?.safeInsetLeft
+                    ?: 0
+        } else if (
+            insets != null &&
+            Build.VERSION.SDK_INT >= 28
+        ) {
+            @Suppress("DEPRECATION")
+            insetLeft =
+                insets.systemWindowInsetLeft
+
+            cutoutLeft =
+                insets.displayCutout
+                    ?.safeInsetLeft
+                    ?: 0
         }
 
-        val paddingStart = systemUiClockPaddingStartPx()
-        val paddingEnd = systemUiClockPaddingEndPx()
-        val measured = clockView.paint.measureText(
-            clockView.text.toString()
-        ).toInt()
+        val parentPadding =
+            systemUiPaddingStartPx()
 
-        return (
-            paddingStart +
-                measured +
-                paddingEnd +
-                dp(2f)
-            ).coerceAtLeast(dp(40f))
+        return maxOf(
+            insetLeft,
+            cutoutLeft
+        ) + parentPadding
     }
 
-    private fun clockAreaWidthPx(): Int {
-        val systemUi = systemUiResources()
+    private fun statusBarStartX(): Int =
+        statusBarStartX(null)
 
-        val clockSizePx =
-            systemUi?.getDimensionPixelSizeByName(
-                "status_bar_clock_size"
-            ) ?: sp(14f).toInt()
+    private fun statusBarClockTopY(): Int {
+        val statusHeight =
+            statusBarHeightPx()
 
-        val startPadding =
-            systemUi?.getDimensionPixelSizeByName(
-                "status_bar_left_clock_starting_padding"
-            ) ?: dp(0f)
+        val contentHeight =
+            statusBarSystemIconsHeightPx()
 
-        val endPadding =
-            systemUi?.getDimensionPixelSizeByName(
-                "status_bar_left_clock_end_padding"
-            ) ?: dp(2f)
+        return (
+            (statusHeight - contentHeight) / 2
+        ).coerceAtLeast(0)
+    }
 
-        val paint = clockViewOrPaint()
-        paint.textSize = clockSizePx.toFloat()
+    private fun nativeClockSlotWidthPx(): Int {
+        val start =
+            systemUiClockPaddingStartPx()
 
-        val is24 =
-            Settings.System.getString(
-                contentResolver,
-                Settings.System.TIME_12_24
-            )?.equals("24", ignoreCase = true) != false
+        val end =
+            systemUiClockPaddingEndPx()
 
-        val sample =
-            if (is24) "23:59" else "11:59 PM"
+        val paint =
+            android.graphics.Paint(clockViewOrPaint()).apply {
+                textSize =
+                    systemUiClockSizePx().toFloat()
+            }
+
+        val nativeText =
+            try {
+                val is24 =
+                    android.text.format.DateFormat
+                        .is24HourFormat(this)
+
+                val pattern =
+                    if (is24) {
+                        "HH:mm"
+                    } else {
+                        "hh:mm"
+                    }
+
+                SimpleDateFormat(
+                    pattern,
+                    Locale.getDefault()
+                ).format(Date())
+            } catch (_: Throwable) {
+                "23:59"
+            }
 
         val measured =
-            paint.measureText(sample).toInt()
+            paint.measureText(
+                nativeText
+            ).toInt()
 
         return (
-            startPadding +
+            start +
                 measured +
-                endPadding +
-                dp(2f)
-            ).coerceAtLeast(dp(40f))
-            .coerceAtMost(dp(88f))
+                end
+        ).coerceAtLeast(
+            dp(40f)
+        )
     }
 
-    private fun clockViewOrPaint(): android.graphics.Paint {
+    private fun nativeClockTextWidthPx(): Int {
+        return (
+            nativeClockSlotWidthPx() -
+                systemUiClockPaddingStartPx() -
+                systemUiClockPaddingEndPx()
+        ).coerceAtLeast(
+            dp(24f)
+        )
+    }
+
+    private fun clockViewOrPaint():
+        android.graphics.Paint {
         return if (::clockView.isInitialized) {
             clockView.paint
         } else {
@@ -438,6 +591,13 @@ class ClockOverlayService : Service() {
         }
     }
 
+    private fun systemUiClockSizePx(): Int =
+        systemUiResources()
+            ?.getDimensionPixelSizeByName(
+                "status_bar_clock_size"
+            )
+            ?: sp(14f).toInt()
+
     private fun systemUiClockPaddingStartPx(): Int =
         systemUiResources()
             ?.getDimensionPixelSizeByName(
@@ -452,6 +612,20 @@ class ClockOverlayService : Service() {
             )
             ?: dp(2f)
 
+    private fun systemUiPaddingStartPx(): Int =
+        systemUiResources()
+            ?.getDimensionPixelSizeByName(
+                "status_bar_padding_start"
+            )
+            ?: dp(0f)
+
+    private fun statusBarSystemIconsHeightPx(): Int =
+        systemUiResources()
+            ?.getDimensionPixelSizeByName(
+                "status_bar_system_icons_height"
+            )
+            ?: statusBarHeightPx()
+
     private fun statusBarHeightPx(): Int {
         val systemUi =
             systemUiResources()
@@ -464,18 +638,26 @@ class ClockOverlayService : Service() {
                     "status_bar_height",
                     "dimen",
                     "android"
-                ).takeIf { it != 0 }
-                    ?.let { resources.getDimensionPixelSize(it) }
+                )
+                    .takeIf { it != 0 }
+                    ?.let {
+                        resources.getDimensionPixelSize(
+                            it
+                        )
+                    }
                 ?: dp(24f)
         ).coerceAtLeast(dp(20f))
     }
 
-    private fun systemUiResources(): SystemUiResources? {
+    private fun systemUiResources():
+        SystemUiResources? {
         return try {
-            val context = createPackageContext(
-                SYSTEM_UI_PACKAGE,
-                Context.CONTEXT_IGNORE_SECURITY
-            )
+            val context =
+                createPackageContext(
+                    SYSTEM_UI_PACKAGE,
+                    Context.CONTEXT_IGNORE_SECURITY
+                )
+
             SystemUiResources(context)
         } catch (_: Throwable) {
             null
@@ -483,19 +665,25 @@ class ClockOverlayService : Service() {
     }
 
     private fun refreshSystemUiAppearance() {
-        if (!::shell.isInitialized) return
+        if (!::shell.isInitialized) {
+            return
+        }
 
         val fallbackNight =
             (
                 resources.configuration.uiMode and
-                    android.content.res.Configuration.UI_MODE_NIGHT_MASK
-            ) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+                    android.content.res.Configuration
+                        .UI_MODE_NIGHT_MASK
+            ) ==
+                android.content.res.Configuration
+                    .UI_MODE_NIGHT_YES
 
         shell.execute("dumpsys statusbar") { result ->
             val appearanceLine =
                 result.lineSequence()
                     .firstOrNull {
-                        it.trimStart().startsWith("mAppearance=")
+                        it.trimStart()
+                            .startsWith("mAppearance=")
                     }
 
             val light =
@@ -505,10 +693,17 @@ class ClockOverlayService : Service() {
                 ) ?: !fallbackNight
 
             val color =
-                if (light) Color.BLACK else Color.WHITE
+                if (light) {
+                    Color.BLACK
+                } else {
+                    Color.WHITE
+                }
 
             handler.post {
-                if (::clockView.isInitialized && color != lastColor) {
+                if (
+                    ::clockView.isInitialized &&
+                    color != lastColor
+                ) {
                     lastColor = color
                     clockView.setTextColor(color)
                 }
@@ -516,19 +711,34 @@ class ClockOverlayService : Service() {
         }
     }
 
+    private fun clockViewOrNull(): TextView? =
+        if (::clockView.isInitialized) {
+            clockView
+        } else {
+            null
+        }
+
     private fun dp(value: Float): Int =
-        (value * resources.displayMetrics.density)
+        (
+            value *
+                resources.displayMetrics.density
+        )
             .toInt()
             .coerceAtLeast(1)
 
     private fun sp(value: Float): Float =
-        value * resources.displayMetrics.scaledDensity
+        value *
+            resources.displayMetrics.scaledDensity
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT < 26) return
+        if (Build.VERSION.SDK_INT < 26) {
+            return
+        }
 
         val manager =
-            getSystemService(NotificationManager::class.java)
+            getSystemService(
+                NotificationManager::class.java
+            )
 
         manager.createNotificationChannel(
             NotificationChannel(
@@ -544,7 +754,8 @@ class ClockOverlayService : Service() {
     private class SystemUiResources(
         private val context: Context
     ) {
-        private val resources = context.resources
+        private val resources =
+            context.resources
 
         fun getDimensionPixelSizeByName(
             name: String
