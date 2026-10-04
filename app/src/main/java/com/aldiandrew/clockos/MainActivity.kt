@@ -129,13 +129,22 @@ class MainActivity : ComponentActivity() {
 
         val level = clockIconLevel(settings)
 
-        shell.execute(
-            "cmd statusbar set-icon clockos $packageName $iconId $level ClockOS"
-        ) { result ->
-            callback(
-                result.startsWith("exit=0"),
-                result
-            )
+        // Ensure the Shizuku UserService is bound first. The Binder call below
+        // talks directly to StatusBarManagerService, avoiding the asynchronous
+        // cmd statusbar pass-through path.
+        shell.execute("true") {
+            shell.setStatusBarIcon(
+                "clockos",
+                packageName,
+                iconId,
+                level,
+                "ClockOS"
+            ) { result ->
+                callback(
+                    result == "ok",
+                    result
+                )
+            }
         }
     }
 
@@ -146,19 +155,21 @@ class MainActivity : ComponentActivity() {
         }
 
         if (!enable) {
-            shell.execute("cmd statusbar remove-icon clockos") { removeResult ->
-                if (!removeResult.startsWith("exit=0")) {
-                    runOnUiThread {
-                        Toast.makeText(
-                            this,
-                            removeResult.take(300),
-                            Toast.LENGTH_LONG
-                        ).show()
+            // Use the direct Binder API so removal is synchronous and verifiable.
+            shell.execute("true") {
+                shell.removeStatusBarIcon("clockos") { removeResult ->
+                    if (removeResult != "ok") {
+                        runOnUiThread {
+                            Toast.makeText(
+                                this,
+                                removeResult.take(300),
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                        return@removeStatusBarIcon
                     }
-                    return@execute
-                }
 
-                shell.execute("cmd statusbar send-disable-flag none") { restoreResult ->
+                    shell.execute("cmd statusbar send-disable-flag none") { restoreResult ->
                     runOnUiThread {
                         if (restoreResult.startsWith("exit=0")) {
                             clockEnabled = false
@@ -202,7 +213,9 @@ class MainActivity : ComponentActivity() {
                             Toast.LENGTH_SHORT
                         ).show()
                     } else {
-                        shell.execute("cmd statusbar remove-icon clockos") {}
+                        shell.execute("true") {
+                            shell.removeStatusBarIcon("clockos") {}
+                        }
                         Toast.makeText(
                             this,
                             clockResult.take(300),
