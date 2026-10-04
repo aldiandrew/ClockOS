@@ -8,12 +8,13 @@ import android.view.View
 import kotlin.math.min
 
 class SakuraNotificationIconContainer(
+    context: android.content.Context,
     private val density: Float,
     private val slotSizePx: Int,
     private val iconSpacingPx: Int,
     private val desiredIconHeightPx: Int,
     private val appIconScale: Float = 0.75f
-) : View(null) {
+) : View(context) {
 
     private data class IconEntry(
         val key: String,
@@ -21,6 +22,7 @@ class SakuraNotificationIconContainer(
     )
 
     private val icons = ArrayList<IconEntry>()
+    private var iconTint = Color.WHITE
 
     private val dotPaint =
         Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -31,6 +33,7 @@ class SakuraNotificationIconContainer(
         entries: List<Pair<String, Drawable>>,
         tint: Int
     ) {
+        iconTint = tint
         icons.clear()
 
         entries.forEach { (key, drawable) ->
@@ -257,26 +260,5 @@ class SakuraNotificationIconContainer(
         )
     }
 
-    private fun currentTint(): Int =
-        icons.firstOrNull()
-            ?.drawable
-            ?.let { drawable ->
-                val state = drawable.state
-                val color =
-                    try {
-                        drawable
-                            .constantState
-                            ?.newDrawable()
-                            ?.let {
-                                it.setTintList(null)
-                                null
-                            }
-                    } catch (_: Throwable) {
-                        null
-                    }
-                state
-                color
-            }
-            ?.let { Color.WHITE }
-            ?: Color.WHITE
+    private fun currentTint(): Int = iconTint
 }
