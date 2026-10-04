@@ -1,7 +1,11 @@
 package com.aldiandrew.clockos
 
+import android.content.ComponentName
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
+import android.app.NotificationManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -75,6 +79,7 @@ class MainActivity : ComponentActivity() {
 
     private var shizukuReady by mutableStateOf(false)
     private var clockEnabled by mutableStateOf(false)
+    private var notificationAccess by mutableStateOf(false)
 
     private val permissionListener =
         Shizuku.OnRequestPermissionResultListener { _, _ ->
@@ -112,6 +117,7 @@ class MainActivity : ComponentActivity() {
         )
 
         refreshShizukuState()
+        refreshNotificationAccess()
 
         setContent {
             ClockOSTheme {
@@ -119,7 +125,9 @@ class MainActivity : ComponentActivity() {
                     prefs = prefs,
                     shizukuReady = shizukuReady,
                     clockEnabled = clockEnabled,
+                    notificationAccess = notificationAccess,
                     onRequestShizuku = ::requestShizuku,
+                    onOpenNotificationAccess = ::openNotificationAccessSettings,
                     onStart = { applyClock(true) },
                     onStop = { applyClock(false) },
                     onSettingsChanged = {
@@ -135,6 +143,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshShizukuState()
+        refreshNotificationAccess()
     }
 
     override fun onDestroy() {
@@ -166,6 +175,27 @@ class MainActivity : ComponentActivity() {
         shizukuReady =
             shell.isAvailable() &&
                 shell.hasPermission()
+    }
+
+    private fun refreshNotificationAccess() {
+        notificationAccess =
+            hasNotificationListenerAccess(this)
+    }
+
+    private fun openNotificationAccessSettings() {
+        try {
+            startActivity(
+                Intent(
+                    Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS
+                )
+            )
+        } catch (_: Throwable) {
+            Toast.makeText(
+                this,
+                "Notification access settings are unavailable",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
     }
 
     private fun requestShizuku() {
@@ -315,7 +345,9 @@ private fun ClockScreen(
     prefs: ClockPrefs,
     shizukuReady: Boolean,
     clockEnabled: Boolean,
+    notificationAccess: Boolean,
     onRequestShizuku: () -> Unit,
+    onOpenNotificationAccess: () -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
     onSettingsChanged: () -> Unit
@@ -382,6 +414,26 @@ private fun ClockScreen(
                 style =
                     MaterialTheme.typography.bodyMedium
             )
+
+            Text(
+                if (notificationAccess) {
+                    "Notification access: ready"
+                } else {
+                    "Notification access: required"
+                },
+                style =
+                    MaterialTheme.typography.bodyMedium
+            )
+
+            if (!notificationAccess) {
+                OutlinedButton(
+                    onClick = onOpenNotificationAccess,
+                    modifier =
+                        Modifier.fillMaxWidth()
+                ) {
+                    Text("Grant notification access")
+                }
+            }
 
             if (!shizukuReady) {
                 Button(
@@ -685,4 +737,45 @@ private fun SettingSwitch(
             onCheckedChange = onCheckedChange
         )
     }
+}
+
+
+private fun hasNotificationListenerAccess(
+    context: android.content.Context
+): Boolean {
+    val component =
+        ComponentName(
+            context,
+            ClockNotificationListener::class.java
+        )
+
+    if (Build.VERSION.SDK_INT >= 27) {
+        try {
+            return context
+                .getSystemService(
+                    NotificationManager::class.java
+                )
+                ?.isNotificationListenerAccessGranted(
+                    component
+                ) == true
+        } catch (_: Throwable) {
+        }
+    }
+
+    val enabled =
+        try {
+            Settings.Secure.getString(
+                context.contentResolver,
+                "enabled_notification_listeners"
+            )
+        } catch (_: Throwable) {
+            null
+        }
+
+    return enabled
+        ?.split(":")
+        ?.any {
+            it == component.flattenToString() ||
+                it == component.flattenToShortString()
+        } == true
 }
