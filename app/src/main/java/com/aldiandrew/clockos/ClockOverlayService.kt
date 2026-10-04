@@ -391,8 +391,8 @@ class ClockOverlayService : Service() {
         }
 
         updatePosition(
-            clockView,
-            clockView.rootWindowInsets
+            statusBarContentView,
+            statusBarContentView.rootWindowInsets
         )
     }
 
