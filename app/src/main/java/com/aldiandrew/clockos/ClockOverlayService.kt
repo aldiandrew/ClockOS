@@ -337,9 +337,6 @@ class ClockOverlayService : Service() {
                 rendered
             lastRendered = renderedKey
 
-            // Keep the requested font size and only compress the complete
-            // line horizontally when the native clock slot is too narrow.
-            applyHorizontalFit()
         }
 
         updatePosition(
@@ -460,14 +457,6 @@ class ClockOverlayService : Service() {
         return builder
     }
 
-    private fun applyHorizontalFit() {
-        // Keep the main clock size fixed exactly as selected by the user.
-        // Do not use textScaleX: Sakura keeps the main time font size stable
-        // and changes the relative size of secondary date/AM-PM content.
-        if (!::clockView.isInitialized) return
-        clockView.textScaleX = 1f
-    }
-
     private fun updatePosition(
         view: View,
         insets: WindowInsets?
@@ -478,7 +467,7 @@ class ClockOverlayService : Service() {
             statusBarStartX(insets)
 
         val targetY =
-            statusBarClockTopY(insets)
+            statusBarClockTopY()
 
         val targetWidth =
             renderedClockWidthPx(insets)
@@ -558,9 +547,7 @@ class ClockOverlayService : Service() {
     private fun statusBarStartX(): Int =
         statusBarStartX(null)
 
-    private fun statusBarClockTopY(
-        insets: WindowInsets? = clockViewOrNull()?.rootWindowInsets
-    ): Int {
+    private fun statusBarClockTopY(): Int {
         val statusBarHeight =
             statusBarHeightPx()
 
@@ -640,16 +627,9 @@ class ClockOverlayService : Service() {
                 textScaleX = 1f
             }
 
-        val nativeText =
-            if (
-                DateFormat.is24HourFormat(
-                    this
-                )
-            ) {
-                "23:59"
-            } else {
-                "11:59"
-            }
+        // The native clock slot is only used as a safe minimum width.
+        // 23:59 is the widest common five-character 24-hour clock sample.
+        val nativeText = "23:59"
 
         val measured =
             paint.measureText(
@@ -664,15 +644,6 @@ class ClockOverlayService : Service() {
             dp(40f)
         )
     }
-
-    private fun nativeClockTextWidthPx(): Int =
-        (
-            nativeClockSlotWidthPx() -
-                systemUiClockPaddingStartPx() -
-                systemUiClockPaddingEndPx()
-        ).coerceAtLeast(
-            dp(20f)
-        )
 
     private fun clockViewOrPaint():
         android.graphics.Paint {
