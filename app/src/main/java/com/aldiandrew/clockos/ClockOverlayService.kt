@@ -246,22 +246,17 @@ class ClockOverlayService : Service() {
         val paddingEnd = systemUiClockPaddingEndPx()
         val metrics = clockView.paint
 
-        // Measure the actual custom clock string instead of the native
-        // HH:mm sample. This prevents seconds/date/day from being clipped.
-        clockView.textSize = requestedSp.coerceIn(10f, 22f)
-
-        val measured = metrics.measureText(
-            clockView.text.toString()
-        ).coerceAtLeast(1f)
-
-        val targetWidth = (
-            paddingStart +
-                measured +
-                paddingEnd +
+        // Keep the overlay inside the space that the native SystemUI clock
+        // normally occupies. SystemUI's notification area is laid out next
+        // to that native clock view, so extending beyond this width causes
+        // notification icons to be covered.
+        val reservedWidth = clockAreaWidthPx()
+        val availableTextWidth = (
+            reservedWidth -
+                paddingStart -
+                paddingEnd -
                 dp(2f)
-            ).toInt().coerceAtLeast(dp(40f))
-
-        clockView.textScaleX = 1f
+        ).coerceAtLeast(dp(20f))
 
         clockView.setPadding(
             paddingStart,
@@ -270,8 +265,38 @@ class ClockOverlayService : Service() {
             0
         )
 
+        var size = requestedSp.coerceIn(10f, 22f)
+
+        while (size > 8f) {
+            clockView.textSize = size
+
+            if (
+                metrics.measureText(
+                    clockView.text.toString()
+                ) <= availableTextWidth
+            ) {
+                break
+            }
+
+            size -= 0.5f
+        }
+
+        val measured = metrics.measureText(
+            clockView.text.toString()
+        ).coerceAtLeast(1f)
+
+        // If all enabled fields are still longer than the native clock slot,
+        // compress horizontally as a final fallback rather than increasing
+        // the window into the notification area.
+        clockView.textScaleX =
+            if (measured > availableTextWidth) {
+                availableTextWidth / measured
+            } else {
+                1f
+            }
+
         if (::params.isInitialized) {
-            params.width = targetWidth
+            params.width = reservedWidth
         }
     }
 
