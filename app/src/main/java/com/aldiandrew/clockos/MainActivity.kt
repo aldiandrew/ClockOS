@@ -1,5 +1,6 @@
 package com.aldiandrew.clockos
 
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -57,7 +58,11 @@ class MainActivity : ComponentActivity() {
                     onRequestShizuku = { requestShizuku() },
                     onStart = { applyClock(true) },
                     onStop = { applyClock(false) },
-                    onSettingsChanged = { refreshClockIcon() }
+                    onSettingsChanged = {
+                        if (clockEnabled) {
+                            sendSettingsChangedBroadcast()
+                        }
+                    }
                 )
             }
         }
@@ -81,7 +86,11 @@ class MainActivity : ComponentActivity() {
 
     private fun requestShizuku() {
         if (!shell.isAvailable()) {
-            Toast.makeText(this, "Shizuku is not running", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                this,
+                "Shizuku is not running",
+                Toast.LENGTH_SHORT
+            ).show()
             return
         }
 
@@ -93,59 +102,12 @@ class MainActivity : ComponentActivity() {
         shell.requestPermission()
     }
 
-    private fun clockIconResId(sizeSp: Float): Int {
-        val size = sizeSp.roundToInt().coerceIn(10, 22)
-        return resources.getIdentifier(
-            "status_bar_clock_$size",
-            "drawable",
-            packageName
-        )
-    }
-
-    private fun clockIconLevel(settings: ClockSettings): Int {
-        var level = 0
-
-        if (settings.format24) level = level or 0x01
-        if (settings.showSeconds) level = level or 0x02
-        if (settings.showDate) level = level or 0x04
-        if (settings.showDay) level = level or 0x08
-
-        level = level or when {
-            settings.weight >= 650 -> (3 shl 4)
-            settings.weight >= 450 -> (2 shl 4)
-            settings.weight >= 350 -> (1 shl 4)
-            else -> 0
-        }
-
-        return level
-    }
-
-    private fun setSystemUiClock(settings: ClockSettings, callback: (Boolean, String) -> Unit) {
-        val iconId = clockIconResId(settings.sizeSp)
-        if (iconId == 0) {
-            callback(false, "ClockOS drawable resource not found")
-            return
-        }
-
-        val level = clockIconLevel(settings)
-
-        // Ensure the Shizuku UserService is bound first. The Binder call below
-        // talks directly to StatusBarManagerService, avoiding the asynchronous
-        // cmd statusbar pass-through path.
-        shell.execute("true") {
-            shell.setStatusBarIcon(
-                "clockos",
-                packageName,
-                iconId,
-                level,
-                "ClockOS"
-            ) { result ->
-                callback(
-                    result == "ok",
-                    result
-                )
+    private fun sendSettingsChangedBroadcast() {
+        sendBroadcast(
+            Intent(this, ClockOverlayService::class.java).apply {
+                action = ClockOverlayService.ACTION_SETTINGS_CHANGED
             }
-        }
+        )
     }
 
     private fun applyClock(enable: Boolean) {
@@ -159,100 +121,78 @@ class MainActivity : ComponentActivity() {
         }
 
         if (!enable) {
-            shell.execute("true") {
-                shell.removeStatusBarIcon("clockos") { removeResult ->
-                    if (removeResult != "ok") {
-                        runOnUiThread {
-                            Toast.makeText(
-                                this,
-                                removeResult.take(300),
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
-                        return@removeStatusBarIcon
-                    }
+            stopService(
+                Intent(this, ClockOverlayService::class.java)
+            )
+            clockEnabled = false
 
-                    shell.execute(
-                        "cmd statusbar send-disable-flag none"
-                    ) { restoreResult ->
-                        runOnUiThread {
-                            if (restoreResult.startsWith("exit=0")) {
-                                clockEnabled = false
-                                Toast.makeText(
-                                    this,
-                                    "Native clock restored",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            } else {
-                                Toast.makeText(
-                                    this,
-                                    restoreResult.take(300),
-                                    Toast.LENGTH_LONG
-                                ).show()
-                            }
-                        }
-                    }
-                }
-            }
+            Toast.makeText(
+                this,
+                "ClockOS stopped",
+                Toast.LENGTH_SHORT
+            ).show()
             return
         }
 
-        setSystemUiClock(prefs.load()) { iconOk, iconResult ->
-            if (!iconOk) {
-                runOnUiThread {
-                    Toast.makeText(
-                        this,
-                        iconResult.take(300),
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-                return@setSystemUiClock
-            }
-
-            shell.execute(
-                "cmd statusbar send-disable-flag clock"
-            ) { clockResult ->
-                runOnUiThread {
-                    if (clockResult.startsWith("exit=0")) {
-                        clockEnabled = true
-                        Toast.makeText(
-                            this,
-                            "ClockOS enabled",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    } else {
-                        shell.execute("true") {
-                            shell.removeStatusBarIcon("clockos") {}
-                        }
-                        Toast.makeText(
-                            this,
-                            clockResult.take(300),
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                }
-            }
-        }
-    }
-
-    private fun refreshClockIcon() {
-        if (!clockEnabled || !shizukuReady) return
-
-        setSystemUiClock(prefs.load()) { ok, result ->
-            if (!ok) {
-                runOnUiThread {
+        shell.execute(
+            "appops set $packageName " +
+                "android:system_alert_window allow"
+        ) { result ->
+            runOnUiThread {
+                if (!result.startsWith("exit=0")) {
                     Toast.makeText(
                         this,
                         result.take(300),
                         Toast.LENGTH_LONG
                     ).show()
+                    return@runOnUiThread
+                }
+
+                // Keep the real SystemUI clock and notification layout intact.
+                // ClockOS is placed exactly over the clock's native area.
+                shell.execute(
+                    "cmd statusbar send-disable-flag none"
+                ) { restoreResult ->
+                    runOnUiThread {
+                        if (!restoreResult.startsWith("exit=0")) {
+                            Toast.makeText(
+                                this,
+                                restoreResult.take(300),
+                                Toast.LENGTH_LONG
+                            ).show()
+                            return@runOnUiThread
+                        }
+
+                        try {
+                            startForegroundService(
+                                Intent(
+                                    this,
+                                    ClockOverlayService::class.java
+                                )
+                            )
+
+                            clockEnabled = true
+
+                            Toast.makeText(
+                                this,
+                                "ClockOS enabled",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } catch (t: Throwable) {
+                            Toast.makeText(
+                                this,
+                                "Could not start ClockOS: " +
+                                    (t.message
+                                        ?: t.javaClass.simpleName),
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
                 }
             }
         }
     }
 }
-
-private fun Float.roundToInt(): Int = kotlin.math.round(this).toInt()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -274,7 +214,11 @@ private fun ClockScreen(
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("ClockOS") }) }
+        topBar = {
+            TopAppBar(
+                title = { Text("ClockOS") }
+            )
+        }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -286,28 +230,33 @@ private fun ClockScreen(
             Spacer(Modifier.height(8.dp))
 
             Text(
-                if (shizukuReady) "Shizuku: ready"
-                else "Shizuku: not ready"
+                if (shizukuReady) {
+                    "Shizuku: ready"
+                } else {
+                    "Shizuku: not ready"
+                }
             )
 
             Text(
                 if (clockEnabled) {
                     "ClockOS: active"
                 } else {
-                    "ClockOS: native clock mode"
+                    "ClockOS: stopped"
                 },
                 style = MaterialTheme.typography.bodyMedium
             )
 
             if (!shizukuReady) {
-                Button(onClick = onRequestShizuku) {
+                Button(
+                    onClick = onRequestShizuku
+                ) {
                     Text("Connect Shizuku")
                 }
             }
 
             Text(
-                "ClockOS uses the native SystemUI status-bar layout and tint. " +
-                    "No manual overlay permission is required.",
+                "ClockOS follows the native SystemUI clock area, font tint, " +
+                    "and status-bar alignment. Notifications remain managed by SystemUI.",
                 style = MaterialTheme.typography.bodySmall
             )
 
@@ -339,12 +288,16 @@ private fun ClockScreen(
                 save("showDay", it)
             }
 
-            Text("Size: %.0fsp".format(settings.sizeSp))
+            Text(
+                "Size: %.0fsp".format(settings.sizeSp)
+            )
 
             Slider(
                 value = settings.sizeSp,
                 onValueChange = {
-                    settings = settings.copy(sizeSp = it)
+                    settings = settings.copy(
+                        sizeSp = it
+                    )
                     prefs.set("sizeSp", it)
                 },
                 onValueChangeFinished = {
