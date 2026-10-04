@@ -14,7 +14,6 @@ import android.os.Looper
 import android.provider.Settings
 import android.text.Spannable
 import android.text.SpannableStringBuilder
-import android.text.format.DateFormat
 import android.text.style.RelativeSizeSpan
 import android.util.TypedValue
 import android.view.Gravity
@@ -40,6 +39,7 @@ class ClockOverlayService : Service() {
         private const val APPEARANCE_LIGHT_STATUS_BARS = 8L
 
         private const val EXTRA_RELATIVE_SIZE = 0.70f
+        private const val CLOCK_EDGE_MARGIN_DP = 4f
     }
 
     private lateinit var windowManager: WindowManager
@@ -62,7 +62,10 @@ class ClockOverlayService : Service() {
     private val tick = object : Runnable {
         override fun run() {
             updateClock()
-            handler.postDelayed(this, 1000L)
+            handler.postDelayed(
+                this,
+                delayUntilNextMinute()
+            )
         }
     }
 
@@ -226,10 +229,15 @@ class ClockOverlayService : Service() {
 
         val styleId =
             systemUiContext.resources.getIdentifier(
-                "TextAppearance.StatusBar.Clock",
+                "TextAppearance.StatusBar.Default.Clock",
                 "style",
                 SYSTEM_UI_PACKAGE
-            )
+            ).takeIf { it != 0 }
+                ?: systemUiContext.resources.getIdentifier(
+                    "TextAppearance.StatusBar.Clock",
+                    "style",
+                    SYSTEM_UI_PACKAGE
+                )
 
         if (styleId != 0) {
             try {
@@ -253,7 +261,8 @@ class ClockOverlayService : Service() {
             Gravity.CENTER_VERTICAL or Gravity.START
 
         view.setPadding(
-            systemUiClockPaddingStartPx(),
+            systemUiClockPaddingStartPx() +
+                dp(CLOCK_EDGE_MARGIN_DP),
             0,
             systemUiClockPaddingEndPx(),
             0
@@ -344,17 +353,9 @@ class ClockOverlayService : Service() {
     ): String {
         val clock =
             if (settings.format24) {
-                if (settings.showSeconds) {
-                    "HH:mm:ss"
-                } else {
-                    "HH:mm"
-                }
+                "HH:mm"
             } else {
-                if (settings.showSeconds) {
-                    "hh:mm:ss"
-                } else {
-                    "hh:mm"
-                }
+                "hh:mm"
             }
 
         return if (
@@ -477,10 +478,10 @@ class ClockOverlayService : Service() {
             statusBarStartX(insets)
 
         val targetY =
-            statusBarClockTopY()
+            statusBarClockTopY(insets)
 
         val targetWidth =
-            nativeClockSlotWidthPx()
+            renderedClockWidthPx(insets)
 
         val targetHeight =
             statusBarSystemIconsHeightPx()
@@ -557,8 +558,69 @@ class ClockOverlayService : Service() {
     private fun statusBarStartX(): Int =
         statusBarStartX(null)
 
-    private fun statusBarClockTopY(): Int =
-        systemUiPaddingTopPx()
+    private fun statusBarClockTopY(
+        insets: WindowInsets? = clockViewOrNull()?.rootWindowInsets
+    ): Int {
+        val statusBarHeight =
+            statusBarHeightPx()
+
+        val contentHeight =
+            statusBarSystemIconsHeightPx()
+
+        val centered =
+            (
+                statusBarHeight - contentHeight
+            ) / 2
+
+        return maxOf(
+            systemUiPaddingTopPx(),
+            centered.coerceAtLeast(0)
+        )
+    }
+
+    private fun renderedClockWidthPx(
+        insets: WindowInsets?
+    ): Int {
+        if (!::clockView.isInitialized) {
+            return nativeClockSlotWidthPx()
+        }
+
+        val startX =
+            statusBarStartX(insets)
+
+        val available =
+            (
+                resources.displayMetrics.widthPixels -
+                    startX -
+                    dp(CLOCK_EDGE_MARGIN_DP)
+            ).coerceAtLeast(
+                dp(80f)
+            )
+
+        val widthSpec =
+            View.MeasureSpec.makeMeasureSpec(
+                available,
+                View.MeasureSpec.AT_MOST
+            )
+
+        val heightSpec =
+            View.MeasureSpec.makeMeasureSpec(
+                statusBarSystemIconsHeightPx(),
+                View.MeasureSpec.EXACTLY
+            )
+
+        clockView.measure(
+            widthSpec,
+            heightSpec
+        )
+
+        return maxOf(
+            nativeClockSlotWidthPx(),
+            clockView.measuredWidth
+        ).coerceAtMost(
+            available
+        )
+    }
 
     private fun nativeClockSlotWidthPx(): Int {
         val start =
@@ -841,6 +903,19 @@ class ClockOverlayService : Service() {
         )
             .toInt()
             .coerceAtLeast(1)
+
+    private fun delayUntilNextMinute(): Long {
+        val now = System.currentTimeMillis()
+        val remainder =
+            now % 60_000L
+
+        return (
+            60_000L - remainder + 100L
+        ).coerceIn(
+            1_000L,
+            60_000L
+        )
+    }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT < 26) {
